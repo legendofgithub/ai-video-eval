@@ -1,0 +1,20 @@
+# 运行数据与本地状态（不入库）
+app/evaluation.db
+app/data/
+app/config.json
+app/vbench_export.json
+*.db
+
+# 测试素材（大视频自行放置）
+测试用例/
+
+# 工具与缓存
+.workbuddy/
+__pycache__/
+*.pyc
+_shots/
+
+# 打包产物
+build/
+dist/
+*.exe

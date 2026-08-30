@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 视频质量评测</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-stripe" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+      </span>
+      <div>
+        <h1>AI 视频质量评测</h1>
+        <p>10 个维度 · 本地指标 + 视觉大模型</p>
+      </div>
+    </div>
+    <span class="tested-count" id="testedCount">已测 0 / 10</span>
+  </header>
+
+  <main id="viewHome" class="view">
+    <section class="setup-grid">
+      <div class="card upload-card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <h2>待测试区</h2>
+        </div>
+        <label class="drop-zone" id="dropZone">
+          <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime" hidden>
+          <span class="dz-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <strong>上传测试视频</strong>
+          <span>mp4 / webm / mov，上传后进入待测试区</span>
+        </label>
+        <div class="pending-video" id="pendingVideo" hidden>
+          <div class="pv-thumb">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>
+          </div>
+          <div class="pv-meta">
+            <strong id="pvName"></strong>
+            <span id="pvInfo"></span>
+          </div>
+          <button class="icon-btn" id="pvRemove" title="移除视频">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <details class="advanced">
+          <summary>高级选项（可选）</summary>
+          <p class="adv-hint">生成 Prompt 仅在测试 D07 文本对齐时填写；模型标识用于多模型对比。其余情况都可不填。</p>
+          <div class="field-row">
+            <label>生成 Prompt<input type="text" id="promptText" placeholder="生成视频时使用的文字指令"></label>
+            <label>模型标识<input type="text" id="modelTag" placeholder="如 Sora / 可灵 / 自测v2"></label>
+          </div>
+        </details>
+        <div class="recent" id="recentWrap" hidden>
+          <span class="recent-label">最近上传</span>
+          <div class="recent-list" id="recentList"></div>
+        </div>
+      </div>
+
+      <div class="card model-card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+          <h2>测试用模型面板</h2>
+        </div>
+        <label class="field">Base URL<input type="text" id="lmmBase" placeholder="https://api.deepseek.com/v1"></label>
+        <label class="field">模型名称<input type="text" id="lmmModel" placeholder="deepseek-v4-flash-vision-exp"></label>
+        <label class="field">API Key<input type="password" id="lmmKey" placeholder="仅保存在本浏览器会话"></label>
+        <button class="btn ghost" id="btnCheckVision">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          检测视觉能力
+        </button>
+        <div class="vision-status" id="visionStatus">
+          <span class="dot" id="visionDot"></span><span id="visionText">未检测</span>
+        </div>
+        <p class="hint">8 个维度需要视觉大模型；D03 / D04 可本地测试，无需 API。</p>
+      </div>
+    </section>
+
+    <section class="dims-section">
+      <div class="section-head">
+        <h2>选择评测维度</h2>
+        <p>点击任意维度卡片开始测试</p>
+      </div>
+      <div class="dims-grid" id="dimsGrid"></div>
+    </section>
+  </main>
+
+  <main id="viewDim" class="view" hidden>
+    <button class="btn ghost back-btn" id="btnBack">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      返回主页
+    </button>
+    <div class="dim-layout">
+      <div class="card dim-info">
+        <span class="layer-chip" id="dimLayer"></span>
+        <h2 id="dimTitle"></h2>
+        <dl class="anchors" id="dimAnchors"></dl>
+        <div class="need-line" id="dimNeed"></div>
+        <button class="btn primary" id="btnRun">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          开始测试
+        </button>
+      </div>
+      <div class="card dim-stage">
+        <video id="dimPlayer" controls playsinline></video>
+        <div class="result" id="dimResult" hidden>
+          <div class="score-row">
+            <span class="score-num" id="scoreNum"></span>
+            <span class="score-unit">/ 10</span>
+            <span class="method-chip" id="methodChip"></span>
+          </div>
+          <div class="score-bar"><i id="scoreBar"></i></div>
+          <p class="note" id="scoreNote"></p>
+        </div>
+        <div class="loading" id="dimLoading" hidden>评测中，请稍候…</div>
+      </div>
+    </div>
+  </main>
+
+  <div class="modal-mask" id="modalMask" hidden>
+    <div class="modal" role="alertdialog" aria-modal="true">
+      <span class="modal-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </span>
+      <p id="modalMsg"></p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modalCancel" hidden>取消</button>
+        <button class="btn primary" id="modalOk">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
