@@ -33,6 +33,7 @@ def test_dashboard_aggregates_scores(tmp_env):
                                     {"value": 6.0, "confidence": 0.9, "note": "x"}, "lmm_a", "m")
     storage.insert_objective_score("v1", "D08",
                                     {"value": 4.0, "confidence": 0.9, "note": "x"}, "lmm_a", "m")
+    storage.save_subjective("v1", "user", "r1", {"D02": 5}, "na", "", "", "")
 
     d = c.get("/api/dashboard").json()
     v = d["videos"][0]
@@ -41,7 +42,7 @@ def test_dashboard_aggregates_scores(tmp_env):
     assert v["mean_scores"]["D01"] == 7.0          # (8+6)/2
     assert v["mean_scores"]["D08"] == 4.0
     assert d["models"][0]["model_tag"] == "Sora"
-    assert sum(h["count"] for h in d["mos_hist"]) == 3
+    assert sum(h["count"] for h in d["mos_hist"]) == 1
     assert d["world_model"][0]["D08"] == 4.0
-    assert d["summary"]["n_ratings"] == 3
-    assert d["summary"]["overall_mean"] == 6.0      # (7+4)/2 over scored dims
+    assert d["summary"]["n_ratings"] == 4
+    assert d["summary"]["overall_mean"] == 5.75     # all score values; MOS is separate

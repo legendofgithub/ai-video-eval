@@ -13,11 +13,11 @@
 构建命令（在 app/ 目录）：
 ```
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --name VideoEvalWeb --add-data "web;web" server.py
+pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web;web" server.py
 ```
-产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行：打开一个控制台日志窗口，并自动打开浏览器 `http://127.0.0.1:8765`。评测数据保存在 exe 同目录的 `data/` 与 `evaluation.db`。
+产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行，自动打开浏览器 `http://127.0.0.1:8765`。评测数据保存在 exe 同目录的 `data/` 与 `evaluation.db`；运行日志写入 `data/app.log`。
 
-> 不要加 `--windowed`：无控制台模式下 uvicorn 会因缺少 stdio 直接退出（已实测），控制台窗口同时承担日志显示。
+自动化验证时可设置 `VIDEOEVAL_NO_BROWSER=1` 禁止自动开浏览器，设置 `VIDEOEVAL_PORT=8876` 指定备用端口。
 > 注意：打包后体积较大（约百余 MB），属正常。接收方无需装 Python。
 > 分发压缩包严禁携带 `config.json`、`evaluation.db`、`data/` 与任何测试脚本：它们可能包含你的 API Key、评测记录和视频数据。
 
@@ -41,6 +41,7 @@ pyinstaller --noconfirm --onefile --name VideoEvalWeb --add-data "web;web" serve
 2. 浏览器打开 `http://127.0.0.1:8765`
 3. 主页「待测试区」上传视频；「测试用模型面板」填写视觉模型 API 并检测视觉能力
 4. 点击任意维度卡片开始测试：D03 / D04 本地出分，其余 8 维调用视觉大模型
+5. 顶部切换「数据看板」查看雷达图、MOS 分布、模型榜、视频明细和世界模型子榜
 
 > 提示：API Key 仅保存在当前浏览器会话中，服务端不落盘。
 
