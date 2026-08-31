@@ -12,7 +12,10 @@ const state = {
   lmm: { base_url: "", api_key: "", model: "" },
   vision: "unknown", // unknown | checking | ok | no_vision
   results: {},
+  boardVideos: [],
 };
+
+let boardSort = { key: "overall", dir: -1 };
 
 const $ = (id) => document.getElementById(id);
 
@@ -285,6 +288,208 @@ async function runTest() {
   }
 }
 
+function showView(view) {
+  $("viewHome").hidden = true;
+  $("viewBoard").hidden = true;
+  $("viewDim").hidden = true;
+  if (view === "home") $("viewHome").hidden = false;
+  else if (view === "board") {
+    $("viewBoard").hidden = false;
+    loadDashboard();
+  }
+  document.querySelectorAll(".nav-tab").forEach((b) =>
+    b.classList.toggle("active", b.dataset.view === view));
+  window.scrollTo(0, 0);
+}
+
+function fmt(v) {
+  return v == null ? "—" : Number(v).toFixed(1);
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function cellClass(v) {
+  if (v == null) return "";
+  if (v >= 8) return "good";
+  if (v >= 6) return "ok";
+  if (v >= 4) return "warn";
+  return "bad";
+}
+
+async function loadDashboard() {
+  try {
+    const d = await (await fetch("/api/dashboard")).json();
+    state.boardVideos = d.videos || [];
+    const s = d.summary || {};
+    $("boardSummary").textContent = s.n_videos
+      ? `共 ${s.n_videos} 个视频 · ${s.n_ratings} 条评分 · 全样本均分 ${fmt(s.overall_mean)}`
+      : "暂无评测数据，先去主页测几个视频吧。";
+    renderRadar(d.videos || []);
+    renderHist(d.mos_hist || []);
+    renderModelBoard(d.models || []);
+    renderLeaderboard();
+    renderWorldBoard(d.world_model || []);
+  } catch (e) {
+    showModal("看板加载失败：" + e.message);
+  }
+}
+
+function renderRadar(videos) {
+  const wrap = $("radarWrap");
+  if (!videos.length || !state.dims.length) {
+    wrap.innerHTML = '<p class="hint">暂无评测数据。</p>';
+    return;
+  }
+  const agg = {};
+  for (const v of videos) {
+    for (const d of state.dims) {
+      const val = v.mean_scores[d.dim_id];
+      if (val != null) (agg[d.dim_id] = agg[d.dim_id] || []).push(val);
+    }
+  }
+  const vals = state.dims.map((d) =>
+    agg[d.dim_id] ? +(agg[d.dim_id].reduce((a, b) => a + b, 0) / agg[d.dim_id].length).toFixed(2) : 0);
+  const n = state.dims.length;
+  const size = 320, cx = size / 2, cy = size / 2, R = size / 2 - 46;
+  const pt = (i, r) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+  };
+  let grid = "", axes = "", labels = "";
+  for (let g = 1; g <= 4; g++) {
+    const rr = (R * g) / 4;
+    grid += `<polygon points="${state.dims.map((_, i) => pt(i, rr).join(",")).join(" ")}" fill="none" stroke="#d9e6ff" stroke-width="1"/>`;
+  }
+  state.dims.forEach((d, i) => {
+    const [x, y] = pt(i, R);
+    axes += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#d9e6ff" stroke-width="1"/>`;
+    const [lx, ly] = pt(i, R + 22);
+    labels += `<text x="${lx}" y="${ly}" font-size="11" fill="#5b7099" text-anchor="middle" dominant-baseline="middle">${d.dim_id}</text>`;
+  });
+  const poly = state.dims.map((d, i) => pt(i, R * (vals[i] / 10)).join(",")).join(" ");
+  wrap.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:360px;display:block;margin:0 auto">
+    ${grid}${axes}
+    <polygon points="${poly}" fill="rgba(37,99,235,0.22)" stroke="#2563eb" stroke-width="2"/>
+    ${state.dims.map((d, i) => { const [x, y] = pt(i, R * (vals[i] / 10)); return `<circle cx="${x}" cy="${y}" r="3" fill="#2563eb"/>`; }).join("")}
+    ${labels}
+  </svg>
+  <p class="hint" style="text-align:center">全样本 ${n} 维均值轮廓</p>`;
+}
+
+function renderHist(hist) {
+  const wrap = $("histWrap");
+  if (!hist.length) { wrap.innerHTML = '<p class="hint">暂无评分。</p>'; return; }
+  const max = Math.max(1, ...hist.map((h) => h.count));
+  const w = 460, h = 200, pad = 28;
+  const bw = (w - pad * 2) / hist.length;
+  let bars = "";
+  hist.forEach((hst, i) => {
+    const bh = (hst.count / max) * (h - pad * 2);
+    const x = pad + i * bw, y = h - pad - bh;
+    bars += `<rect x="${x + 2}" y="${y}" width="${bw - 4}" height="${bh}" fill="#3b82f6" rx="2"/>`;
+    if (hst.count) bars += `<text x="${x + bw / 2}" y="${y - 4}" font-size="10" fill="#5b7099" text-anchor="middle">${hst.count}</text>`;
+    bars += `<text x="${x + bw / 2}" y="${h - pad + 14}" font-size="9" fill="#5b7099" text-anchor="middle">${hst.bin}</text>`;
+  });
+  wrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:480px;display:block;margin:0 auto">
+    <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#d9e6ff"/>
+    ${bars}
+  </svg>`;
+}
+
+function renderModelBoard(models) {
+  const wrap = $("modelBoard");
+  if (!models.length) { wrap.innerHTML = '<p class="hint">暂无数据。</p>'; return; }
+  const sorted = [...models].sort((a, b) => (b.overall ?? -1) - (a.overall ?? -1));
+  const rows = sorted.map((m, i) => `
+    <tr>
+      <td class="num">${i + 1}</td>
+      <td>${escapeHtml(m.model_tag)}</td>
+      <td class="num">${m.n_videos}</td>
+      <td class="num">${fmt(m.layer_means.technical)}</td>
+      <td class="num">${fmt(m.layer_means.semantic)}</td>
+      <td class="num">${fmt(m.layer_means.world_model)}</td>
+      <td class="num strong">${fmt(m.overall)}</td>
+    </tr>`).join("");
+  wrap.innerHTML = `<table class="lb-table">
+    <thead><tr><th class="num">#</th><th>模型</th><th class="num">视频数</th>
+    <th class="num">技术均</th><th class="num">语义均</th><th class="num">世界均</th><th class="num">综合</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function renderLeaderboard() {
+  const wrap = $("leaderboard");
+  const videos = state.boardVideos || [];
+  if (!videos.length) { wrap.innerHTML = '<p class="hint">暂无数据。</p>'; return; }
+  const cols = [
+    { k: "filename", t: "视频", num: false },
+    { k: "model_tag", t: "模型", num: false },
+    ...state.dims.map((d) => ({ k: d.dim_id, t: d.dim_id, num: true })),
+    { k: "overall", t: "综合", num: true, strong: true },
+  ];
+  const sorted = [...videos].sort((a, b) => {
+    let va, vb;
+    if (["overall", "filename", "model_tag"].includes(boardSort.key)) {
+      va = a[boardSort.key]; vb = b[boardSort.key];
+    } else {
+      va = a.mean_scores[boardSort.key]; vb = b.mean_scores[boardSort.key];
+    }
+    if (va == null) va = -1;
+    if (vb == null) vb = -1;
+    if (typeof va === "string") return boardSort.dir * String(va).localeCompare(String(vb));
+    return boardSort.dir * (va - vb);
+  });
+  const head = cols.map((c) =>
+    `<th data-sort="${c.k}" class="${c.num ? "num" : ""} ${c.strong ? "strong" : ""} ${boardSort.key === c.k ? "sorted" : ""}">${c.t}${boardSort.key === c.k ? (boardSort.dir < 0 ? " ▼" : " ▲") : ""}</th>`).join("");
+  const body = sorted.map((v) => {
+    const cells = cols.map((c) => {
+      if (c.k === "filename") return `<td>${escapeHtml(v.filename)}</td>`;
+      if (c.k === "model_tag") return `<td>${escapeHtml(v.model_tag || "未标注")}</td>`;
+      if (c.k === "overall") return `<td class="num strong">${fmt(v.overall)}</td>`;
+      const val = v.mean_scores[c.k];
+      return `<td class="num ${cellClass(val)}">${fmt(val)}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+  wrap.innerHTML = `<table class="lb-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  wrap.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => {
+    const k = th.dataset.sort;
+    if (boardSort.key === k) boardSort.dir *= -1;
+    else { boardSort.key = k; boardSort.dir = (k === "filename" || k === "model_tag") ? 1 : -1; }
+    renderLeaderboard();
+  }));
+}
+
+function renderWorldBoard(wm) {
+  const wrap = $("worldBoard");
+  if (!wm.length) { wrap.innerHTML = '<p class="hint">暂无数据。</p>'; return; }
+  const w = 560, h = 240, pad = 36;
+  const groups = wm.length, dims = ["D08", "D09", "D10"];
+  const colors = { D08: "#2563eb", D09: "#0891b2", D10: "#4f46e5" };
+  const gw = (w - pad * 2) / groups, bw = gw / 4;
+  let bars = "";
+  wm.forEach((v, i) => {
+    const gx = pad + i * gw;
+    dims.forEach((dim, j) => {
+      const val = v[dim];
+      const bh = val == null ? 0 : (val / 10) * (h - pad * 2);
+      const x = gx + 8 + j * bw, y = h - pad - bh;
+      bars += `<rect x="${x}" y="${y}" width="${bw - 3}" height="${bh}" fill="${colors[dim]}" rx="2"><title>${dim}: ${fmt(val)}</title></rect>`;
+    });
+    const label = v.filename || v.video_id;
+    bars += `<text x="${gx + gw / 2}" y="${h - pad + 14}" font-size="10" fill="#5b7099" text-anchor="middle">${escapeHtml(label.length > 8 ? label.slice(0, 8) + "…" : label)}</text>`;
+  });
+  const legend = dims.map((dim) =>
+    `<span class="lg"><i style="background:${colors[dim]}"></i>${dim}</span>`).join("");
+  const yticks = [0, 2, 4, 6, 8, 10].map((t) =>
+    `<text x="${pad - 6}" y="${h - pad - (t / 10) * (h - pad * 2)}" font-size="9" fill="#5b7099" text-anchor="end" dominant-baseline="middle">${t}</text>`).join("");
+  wrap.innerHTML = `<div class="legend">${legend}</div><svg viewBox="0 0 ${w} ${h}" width="100%" style="max-width:560px;display:block;margin:0 auto">
+    <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#d9e6ff"/>
+    ${yticks}${bars}</svg>`;
+}
+
 function init() {
   $("lmmBase").value = localStorage.getItem("ve_base") || "";
   $("lmmModel").value = localStorage.getItem("ve_model") || "";
@@ -306,10 +511,7 @@ function init() {
   });
   $("pvRemove").addEventListener("click", () => setPendingVideo(null));
   $("btnCheckVision").addEventListener("click", checkVision);
-  $("btnBack").addEventListener("click", () => {
-    $("viewDim").hidden = true;
-    $("viewHome").hidden = false;
-  });
+  $("btnBack").addEventListener("click", () => showView("home"));
   $("btnRun").addEventListener("click", runTest);
   $("modalOk").addEventListener("click", () => {
     $("modalMask").hidden = true;
@@ -319,6 +521,8 @@ function init() {
   $("modalMask").addEventListener("click", (e) => {
     if (e.target === $("modalMask")) $("modalMask").hidden = true;
   });
+  document.querySelectorAll(".nav-tab").forEach((b) =>
+    b.addEventListener("click", () => showView(b.dataset.view)));
 
   loadDims().then(loadRecent);
 }

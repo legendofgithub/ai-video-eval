@@ -19,6 +19,10 @@
         <p>10 个维度 · 本地指标 + 视觉大模型</p>
       </div>
     </div>
+    <nav class="top-nav">
+      <button class="nav-tab active" data-view="home">评测主页</button>
+      <button class="nav-tab" data-view="board">数据看板</button>
+    </nav>
     <span class="tested-count" id="testedCount">已测 0 / 10</span>
   </header>
 
@@ -121,6 +125,42 @@
         <div class="loading" id="dimLoading" hidden>评测中，请稍候…</div>
       </div>
     </div>
+  </main>
+
+  <main id="viewBoard" class="view" hidden>
+    <section class="board-section">
+      <div class="section-head">
+        <h2>数据看板</h2>
+        <p id="boardSummary"></p>
+      </div>
+
+      <div class="board-grid">
+        <div class="card">
+          <div class="card-title"><h2>全样本质量轮廓（雷达）</h2></div>
+          <div id="radarWrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><h2>MOS 分布直方图</h2></div>
+          <div id="histWrap"></div>
+          <p class="hint">横轴为 0–10 分桶，纵轴为评分数。分布越偏左说明整体质量越低。</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>模型 Leaderboard</h2></div>
+        <div id="modelBoard"></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>视频明细 Leaderboard（点击表头排序）</h2></div>
+        <div id="leaderboard"></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>世界模型子榜 · D08/D09/D10 内在真实性</h2></div>
+        <div id="worldBoard"></div>
+      </div>
+    </section>
   </main>
 
   <div class="modal-mask" id="modalMask" hidden>

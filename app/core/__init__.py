@@ -14,7 +14,7 @@ from .media import md5_file, video_meta, validate_video, sample_frames, frame_to
 from .lmm import build_dim_prompt, score_one_dim, probe_vision
 from .evaluate import signal_metrics, auto_evaluate
 from .stats import compute_icc_matrix
-from .export import _human_score_rows, _dim_value, export_vbench
+from .export import _human_score_rows, _dim_value, dashboard_data, export_vbench
 
 __all__ = [
     "DIMENSIONS", "DIM_IDS", "DIM_NAME", "DEFAULT_SPEC_ID", "TEMPORAL_SIGNAL_DIMS",
@@ -25,5 +25,6 @@ __all__ = [
     "md5_file", "video_meta", "validate_video", "sample_frames", "frame_to_b64",
     "build_dim_prompt", "score_one_dim", "probe_vision",
     "signal_metrics", "auto_evaluate",
-    "compute_icc_matrix", "_human_score_rows", "_dim_value", "export_vbench",
+    "compute_icc_matrix", "_human_score_rows", "_dim_value", "dashboard_data",
+    "export_vbench",
 ]

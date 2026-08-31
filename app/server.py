@@ -22,6 +22,7 @@ from core import (
     TEMPORAL_SIGNAL_DIMS,
     add_video,
     auto_evaluate,
+    dashboard_data,
     delete_video,
     get_conn,
     get_video_path,
@@ -126,6 +127,12 @@ def video_file(video_id: str):
     return FileResponse(p)
 
 
+@server.get("/api/dashboard")
+def api_dashboard():
+    """Aggregated leaderboards, MOS histogram and world-model sub-board."""
+    return dashboard_data()
+
+
 @server.delete("/api/video/{video_id}")
 def api_delete_video(video_id: str):
     try:
@@ -185,10 +192,11 @@ server.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.environ.get("VIDEOEVAL_PORT", "8765"))
     no_browser = os.environ.get("VIDEOEVAL_NO_BROWSER", "").lower() in {"1", "true", "yes"}
     if not no_browser:
-        threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8765")).start()
+        threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     if sys.stderr is None:
-        uvicorn.run(server, host="127.0.0.1", port=8765, log_config=None)
+        uvicorn.run(server, host="127.0.0.1", port=port, log_config=None)
     else:
-        uvicorn.run(server, host="127.0.0.1", port=8765)
+        uvicorn.run(server, host="127.0.0.1", port=port)
