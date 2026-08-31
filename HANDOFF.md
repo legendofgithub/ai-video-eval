@@ -2,7 +2,7 @@
 
 > 更新时间：2026-08-31  
 > 交接目标：任何 AI 助手读完本文档后可直接接续开发，无需重新摸索项目状态。  
-> 当前总状态：P0/P1 已提交；P2/P3 代码与打包产物已完成但**尚未提交**；最终三连质量检查在最后一步被用户中断，需补跑后提交。
+> 当前总状态：P0/P1/P2/P3 **已全部提交**（最新提交 `336019b`）；质量三连（ruff 全过 / mypy no issues / pytest 12 passed 2 skipped）已补跑通过；网页服务已在 `127.0.0.1:8765` 运行。下一步进入 **P4**。
 
 ---
 
@@ -50,7 +50,7 @@
   构建命令：`pyinstaller --noconfirm --onefile --name VideoEvalWeb --add-data "web;web" server.py`
   **重要**：不要加 `--windowed`，已实测无控制台模式 uvicorn 因缺 stdio 直接退出；README 已注明
 
-## 3. 中断点与立即待办（按顺序执行）
+## 3. 中断点与立即待办（2026-08-31 已全部执行 ✅，保留备查）
 
 1. **补跑最终质量三连**（上一步被用户中断，打包后未再全量验证）：
    ```powershell
@@ -63,9 +63,10 @@
 2. **提交 P2+P3**：`git add -A; git commit -m "P2+P3：视觉探测JSON化、日志、分数恢复、pytest化、ruff/mypy门禁、依赖锁定与exe打包"`（本交接文档一并入库）
 3. **重启网页服务**（用户浏览器开着 8765）：venv python `-X utf8 server.py` 后台常驻
 
-## 4. 当前未提交的工作区清单
+## 4. 工作区状态（已全部提交 ✅）
 
 ```
+（以下清单已于 2026-08-31 全部提交至提交 336019b，当前工作区干净、无未提交内容）
 修改：app/README.md（打包说明修正为 console 版 + lock 用法）
 修改：.gitignore（新增 *.spec）
 修改：app/server.py（/api/scores、n_frames 参数化、frozen stdout 防御、import 排序）
