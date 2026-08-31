@@ -138,6 +138,7 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
         "video_id": vid, "duplicate": False, "filename": os.path.basename(src),
         "duration_sec": round(dur, 2), "fps": int(fps or 24),
         "resolution": f"{w}x{hgt}", "file_size_mb": round(size_mb, 2),
+        "prompt_text": prompt_text, "model_tag": model_tag,
     }
 
 
@@ -172,7 +173,8 @@ def list_videos(limit=20):
                  ORDER BY created_at DESC LIMIT ?""", (limit,))
     rows = c.fetchall(); conn.close()
     return [{"video_id": r[0], "filename": r[1], "model_tag": r[2],
-             "resolution": r[3], "duration_sec": r[4], "created_at": r[5]}
+             "resolution": r[3], "duration_sec": r[4], "created_at": r[5],
+            }
             for r in rows]
 
 
@@ -190,6 +192,12 @@ def insert_objective_score(video_id, dim_id, res, rater, model,
 def save_subjective(video_id, role, rater_id, dims_vals, gate, note_text,
                     ab_choice, ab_vs):
     """Save a human/expert rating. gate: technical/physical/semantic/na."""
+    if gate not in {"technical", "physical", "semantic", "na"}:
+        raise ValueError("未知低分门控类型")
+    if not str(rater_id).strip():
+        raise ValueError("评测者 ID 不能为空")
+    if not dims_vals:
+        raise ValueError("至少提交一个维度的评分")
     unknown = set(dims_vals) - set(DIM_IDS)
     if unknown:
         raise ValueError(f"未知评测维度: {', '.join(sorted(unknown))}")

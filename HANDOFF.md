@@ -1,17 +1,18 @@
 # AI 视频质量评测项目交接记录
 
-> 更新时间：2026-08-31
-> 当前结论：P1 已完成；P2/P3 主体已完成并通过三轮审计。最新一轮补齐无控制台启动、真实浏览器主流程、边界测试和窗口化打包验证。
-> 当前状态：8765 与 8876 均无监听；本轮测试视频、评分记录和临时打包目录已清理。
+> 更新时间：2026-08-31 16:32 +08:00
+> 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试也已进入网页端。本轮增量审计继续修复统计口径、测试隔离、端口占用和真实 UI 状态问题。
+> 当前 Git：`master` HEAD=`2bbb6e3`；本轮代码与交接更新保留在工作区，未提交、未回滚。
+> 当前运行状态：本轮启动的 `8765` 已停止；`8876` 有本轮开始前已存在的 Python 进程 `34124` 监听，按“只停止自己启动的服务”未处理。数据库回到 `videos=0, scores=0`，本轮视频、评分、导出与临时脚本已清理。
 
 ## 1. 环境与入口
 
 - 项目根：`F:\AI\codex project\AI视频评测`
 - 开发 Python：`C:\Users\asus\.workbuddy\binaries\python\envs\videoeval\Scripts\python.exe`
 - 网页端：在 `app/` 执行 `python server.py`，默认 `http://127.0.0.1:8765`
-- 自动化环境变量：`VIDEOEVAL_NO_BROWSER=1` 可禁止自动开浏览器，`VIDEOEVAL_PORT=8876` 可换端口
+- 自动化环境变量：`VIDEOEVAL_NO_BROWSER=1` 禁止自动开浏览器，`VIDEOEVAL_PORT` 指定端口
 - 旧 Gradio 端：`python app.py`，仅保留兼容，不继续扩展
-- 测试视频：`测试用例\华清普智孵化器广告.mp4`，已 gitignore
+- 本地测试视频：`测试用例\华清普智孵化器广告.mp4`，已 gitignore
 
 ## 2. 已完成
 
@@ -20,28 +21,43 @@
 - 提交 `d15ec91`：抽出 `app/core/` 作为存储、媒体、LMM、评测、统计、导出的单一核心；`server.py` 与 `app.py` 变薄。
 - 上传校验、删除顺序、SQLite WAL/busy timeout 已落地。
 
-### P2/P3 质量与产品修复
+### P2/P3 工程与产品质量
 
 - 提交 `336019b`：pytest 迁移、Ruff/Mypy 门禁、依赖锁定、日志、视觉探测 JSON 化、历史分数恢复。
-- 本轮继续完成：
-  - 上传从一次性 `await file.read()` 改为 1MB 分块写入，超过 500MB 返回 413，避免大视频撑爆内存。
-  - `/api/check-vision` 与 `/api/evaluate/{dim_id}` 改为同步端点，由 FastAPI 线程池执行 OpenCV/光流/API 调用，不再阻塞事件循环。
-  - LMM 失败返回 502，不再把 `value=None` 的结果落库；`/api/scores` 只返回有效分数。
-  - 前端恢复分数增加请求令牌，避免快速切换视频时旧响应覆盖新视频；移除当前视频时清空已测状态。
-  - 维度卡片支持 Tab、Enter、Space 键盘操作。
-  - 主观评分校验未知维度、非有限数和 0-10 范围；LMM confidence 钳制到 0-1；抽帧数钳制到 1-64。
-  - 无 `stderr` 时 Uvicorn 使用 `log_config=None`，应用日志跳过 console handler；窗口化 exe 不再因 formatter 调 `None.isatty()` 崩溃。
-  - 新增数据看板：全样本雷达、MOS 分布、模型 Leaderboard、可排序视频明细、D08/D09/D10 世界模型子榜；MOS 直方图仅统计主观/专家分，不混入客观分。
+- 上传改为 1MB 分块写入，超过 500MB 返回 413；OpenCV/光流/API 调用走线程池；LMM 失败不落库。
+- 前端分数恢复带请求令牌，维度卡片支持键盘操作；主观分、confidence、抽帧数均有边界钳制。
+- 无控制台/windowed 模式日志兼容；数据看板包含雷达、MOS 直方图、模型榜、可排序明细和世界模型子榜。
+
+### P4 网页工作台
+
+- 提交 `0f72bc8`：新增 `/api/dashboard` 聚合与原生 SVG 看板。
+- 提交 `2bbb6e3`：主观评分、专家仲裁、ICC/Krippendorff、VBench 导出、评分工作台、系统托盘和重复上传/端口测试。
+
+### 本轮增量审计修复（未提交）
+
+1. **统计口径**
+   - `compute_icc_matrix` 从一致性单评分公式修正为 ICC(2,1) 绝对一致性公式，补上列效应项。
+   - `compute_krippendorff_alpha` 改为 interval 数据的 coincidence-matrix 公式；用独立参考实现核对基准，例如两单元 `[1,2]` / `[3,4]` 的正确值为 `0.70`，原实现误算 `0.75`。
+   - 导出按时间顺序读取，最新专家仲裁覆盖旧仲裁。
+2. **测试隔离与边界**
+   - `conftest.py` 增加 autouse 存储/媒体隔离，所有 pytest 均不再把视频、抽帧或数据库记录写入真实 `app/data`。
+   - 本地 D03/D04 失败分直接返回 502，不再插入 `value=None`。
+   - 主观评分拒绝空维度、空白评测者 ID 和未知低分门控。
+3. **运行与 UI**
+   - `is_port_free` 真正接入启动流程；端口占用时记录日志、windowed 下弹窗提示并以退出码 2 结束。
+   - 上传成功响应带 `prompt_text/model_tag`，重复上传在待测试区仍显示模型标识。
+   - 全局 `[hidden] { display:none !important; }` 修复 `.pending-video` 的 `display:flex` 覆盖 `hidden` 导致的空占位问题。
+   - 可靠性表文案改为“仅统计有效人工标注评分”，与实际查询口径一致。
 
 ## 3. 验证证据
 
 ### 三轮审计
 
-1. 代码架构与数据流：检查 `core -> server -> web` 的上传、存储、评分、删除、恢复、导出链路；确认 API key 只保存在浏览器会话，服务端不落盘。
-2. 测试与边界：补上传 413、失败分数过滤、主观分越界、未知维度、抽帧数非正数等用例。
-3. 真实网页与打包：无控制台源码服务、真实 Edge 点击流、窗口化 exe 均验证。
+1. **代码架构与数据流**：复核 `core -> server -> web` 的上传、存储、评分、可靠性、导出、删除链路；确认本轮改动未破坏 API key 不落盘约束。
+2. **测试与边界**：新增统计回归、失败本地分、空主观分、空白评测者、未知门控、最新专家仲裁、重复上传响应与媒体隔离断言。
+3. **真实网页点击**：可见 Edge + Playwright 覆盖真实表单、按钮、上传、评测、工作台、导出、看板、排序、删除与移动端。
 
-### 自动化结果
+### 质量门禁
 
 ```powershell
 cd "F:\AI\codex project\AI视频评测\app"
@@ -50,51 +66,51 @@ cd "F:\AI\codex project\AI视频评测\app"
 & "C:\Users\asus\.workbuddy\binaries\python\envs\videoeval\Scripts\python.exe" -m mypy core server.py
 ```
 
-- Pytest：`18 passed, 2 skipped`（真实 DeepSeek 用例因未设置 `DEEPSEEK_API_KEY` 跳过）
+- Pytest：`31 passed, 2 skipped`（2 个真实 DeepSeek 用例因未设置 `DEEPSEEK_API_KEY` 跳过）
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 10 source files`
+- `git diff --check`：通过
 
-### 真实浏览器
+### 真实 Edge 点击流
 
-使用 Playwright 驱动本机 Edge（可见窗口），桌面视口 1440x900：
+- 桌面 `1440x900`：首页 10 张维度卡、无待测视频时待测占位隐藏、无横向溢出。
+- 展开高级选项，填写 prompt 与 `audit_edge`，上传临时 mp4；新上传和重复上传都显示模型标识。
+- 点击 D03 -> “开始测试”，得到本地信号分 `7.86`。
+- 评分工作台：选择人工标注员 `audit_r1`，设置 D01=7.5、D08=8，保存成功；10 行可靠性表渲染。
+- 下载 VBench JSON，`leaderboard` 包含 `audit_edge`。
+- 数据看板：雷达、直方图、模型榜、明细和世界模型子榜渲染；D03 表头排序可用；无横向溢出。
+- 删除最近上传并确认：`/api/videos` 为空，数据库 `videos=0, scores=0`，本轮视频/抽帧/导出/脚本清理。
+- 移动端 `390x844`：无横向溢出。
+- 截图证据：`app/_shots/audit_desktop_home.png`、`audit_desktop_d03.png`、`audit_desktop_workbench.png`、`audit_desktop_board.png`、`audit_mobile_home.png`（目录 gitignored）。
+- 端口占用：在 `8765` 已监听时再次启动，日志输出占用提示并退出，退出码 `2`。
 
-- 首页渲染 10 个维度卡。
-- 无视频点击 D03：出现“请提供测试视频”弹窗，确认后可关闭。
-- 上传临时 mp4、填写表单、点击 D03、点击“开始测试”：得到本地信号分 `7.72`，方法为“本地信号指标”。
-- 返回主页后显示“已测 1 / 10”；刷新页面并重新选择最近上传，分数仍恢复为 1/10。
-- 点击最近记录删除并确认：视频、评分、文件记录均清理。
-- 移动视口 390x844：`scrollWidth-clientWidth=0`，无横向溢出。
-- 数据看板二次验证：D03 得分 `6.74` 后切换看板，雷达/直方图/模型榜/明细/世界模型子榜均渲染，表头排序可用，移动端溢出为 0。
-- 证据截图：`app/_shots/desktop_main.png`、`app/_shots/mobile_home.png`、`app/_shots/desktop_board.png`、`app/_shots/mobile_board.png`（目录已 gitignore）。
+### 打包历史证据
 
-### 窗口化打包
-
-- 在独立临时目录执行 PyInstaller `--onefile --windowed`，产物大小 `124,479,275` 字节。
-- 以 `VIDEOEVAL_NO_BROWSER=1`、`VIDEOEVAL_PORT=8876` 启动，`/api/health` 返回 `{"ok":true,"dimensions":10}`。
-- 验证后停止临时 exe 父子进程，确认 8876 无监听，并删除临时构建目录。
+- PyInstaller `--onefile --windowed` 曾生成 `124,479,275` 字节 exe。
+- `8876` 健康 200、托盘/无浏览器环境变量已验证；当时临时 exe 与构建目录已清理。
+- 瘦身按用户要求跳过，体积非当前约束。
 
 ## 4. 未完成
 
-1. 真实 DeepSeek 视觉链路未在本轮执行：环境变量 `DEEPSEEK_API_KEY` 未设置，2 个真实 API 测试按设计跳过。
-2. 网页端尚未覆盖旧 Gradio 的完整人工工作台：主观 MOS 录入、专家仲裁、ICC 表、VBench 导出仍需进网页 UI；看板仅展示已落库评分。
-3. exe 体积约 118MB，尚未做 `pandas/scipy/pytest` 排除与瘦身分析。
-4. 网页端暂无批量“一键 10 维评测”和任务队列，多维度只能逐卡执行。
+1. 真实 DeepSeek 视觉链路仍未执行：缺少用户持有的 `DEEPSEEK_API_KEY`，2 个真实 API 测试按设计跳过。
+2. 网页端还没有“一键 10 维评测”和任务队列，多维度仍需逐卡执行。
+3. 本轮改动未提交；下一轮应先 review/提交，再继续新功能。
+4. 可靠性统计当前只统计人工标注员，专家仲裁作为导出覆盖值，不参与 ICC/Krippendorff；若产品希望专家也参与一致性，需要先定义口径。
+5. `app/data` 中存在历史孤儿媒体/日志文件；本轮只删除本轮生成和本轮测试对应数据，未清理可能属于用户的历史运行数据。
 
-## 5. 阻塞与工具备注
+## 5. 阻塞与外部状态
 
-- 本地截图视觉复核工具 `glance` 报 `Missing config VISION_API_KEY`，因此无法用视觉模型复核截图；已用真实浏览器 DOM 断言、截图留存和移动端溢出计算替代。
-- In-app Browser 插件在 Node REPL 初始化时被 `node:process` 导入限制拦截；本轮改用 Playwright 驱动真实 Edge，不影响项目本身。
-- PowerShell `Remove-Item` 被本机策略拦截；临时构建目录用 Python `shutil.rmtree` 并先校验路径位于系统 Temp 下后删除。
+- `DEEPSEEK_API_KEY` 是真实视觉链路唯一产品级阻塞。
+- `8876` 被进程 `34124`（`videoeval` Python 环境 `server.py`）占用。该进程在本轮开始前已存在，不是本轮启动，未按指令擅停。
+- 本地视觉复核 `glance` 缺 `VISION_API_KEY`；本轮以真实浏览器 DOM 断言、截图和溢出计算替代。
+- PowerShell `Remove-Item` 会被本机策略拦截；本轮仅用 Python 删除两个已校验路径的临时文件，未做递归删除。
 
-## 6. 下一轮建议（P4 路线执行状态）
+## 6. 下一轮建议
 
-- **[done] 1. 真实 DeepSeek 视觉链路**：env 门禁就绪，2 个真实 API 测试在 `DEEPSEEK_API_KEY` 未设时按设计跳过（Key 由用户掌握，未在本机执行；README 已更正 DeepSeek 现已提供视觉模型 `deepseek-v4-flash-vision-exp`）。
-- **[done] 2. 主观评分 / 专家仲裁 / ICC+Krippendorff's α 一致性 / VBench 导出** 已全部迁入网页端（新增「评分工作台」视图 + 后端 `POST /api/score/subjective`、`GET /api/reliability`、`GET /api/export/vbench`）。
-- **[skip] 3. 瘦身到 80MB**：用户明确不需要，跳过（体积非约束）。
-- **[done] 4. 边界测试**：新增端口占用探测 `is_port_free`、并发同 hash 上传幂等去重（`add_video` 改为先算哈希再拷贝，避免去重路径 `os.remove`）、重复提交防护测试（`test_duplicate_upload_is_idempotent`、`test_is_port_free_probe`）。
-- **[done] 5. 窗口化 exe 系统托盘**：`server.py` 新增 `_start_tray`，窗口化构建从托盘菜单「打开浏览器 / 退出」；`pystray` 延迟导入，开发/控制台运行不依赖；README 更新打包命令（`--hidden-import pystray --collect-all pystray`）。
-
-> 质量三连（ruff / mypy / pytest）在 R1–R5 全绿：pytest 24 passed, 2 skipped（2 skip 为无 Key 的真实 DeepSeek 用例）。
+1. Review 并提交本轮统计、隔离、端口和 UI 修复。
+2. 设置 `DEEPSEEK_API_KEY` 后执行 2 个真实视觉用例，并在网页端跑一次非 D03 维度。
+3. 设计“一键 10 维评测”任务队列：并发、取消、失败重试、逐维结果恢复。
+4. 如需清理 `app/data` 历史孤儿文件，先让用户确认保留策略，再按 DB 引用关系清理。
 
 ## 7. 关键文件
 

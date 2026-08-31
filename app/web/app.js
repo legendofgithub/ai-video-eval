@@ -128,7 +128,7 @@ async function uploadVideo(file) {
   if (data.duplicate) {
     const full = (await (await fetch("/api/videos")).json())
       .find((v) => v.video_id === data.video_id);
-    setPendingVideo(full, `${full.filename} · 已存在，复用入库记录`);
+    setPendingVideo(full, `${full.model_tag || "未标模型"} · 已存在，复用入库记录`);
   } else {
     setPendingVideo(data);
   }

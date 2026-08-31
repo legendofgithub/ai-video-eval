@@ -16,13 +16,8 @@ import server as server_mod
 
 
 @pytest.fixture
-def isolated_db(tmp_path, monkeypatch):
-    """Point the single SQLite file at a temp path and create tables there."""
-    db = tmp_path / "iso.db"
-    monkeypatch.setattr(storage, "DB", str(db))
-    monkeypatch.setattr(core.export, "BASE", str(tmp_path))
-    storage.init_db()
-    yield str(db)
+def isolated_db():
+    return storage.DB
 
 
 def _make_mp4(path):
@@ -34,10 +29,12 @@ def _make_mp4(path):
     vw.release()
 
 
-def _upload(client, tmp_path):
+def _upload(client, tmp_path, model_tag=""):
     mp = tmp_path / "clip.mp4"
     _make_mp4(mp)
-    r = client.post("/api/upload", files={"file": ("clip.mp4", mp.read_bytes(), "video/mp4")})
+    r = client.post("/api/upload", files={
+        "file": ("clip.mp4", mp.read_bytes(), "video/mp4")
+    }, data={"model_tag": model_tag})
     assert r.status_code == 200, r.text
     return r.json()["video_id"]
 
@@ -63,12 +60,54 @@ def test_duplicate_upload_is_idempotent(isolated_db, tmp_path):
     mp = tmp_path / "clip.mp4"
     _make_mp4(mp)
     bytes_a = mp.read_bytes()
-    r1 = c.post("/api/upload", files={"file": ("clip.mp4", bytes_a, "video/mp4")})
-    r2 = c.post("/api/upload", files={"file": ("clip.mp4", bytes_a, "video/mp4")})
+    upload = {"file": ("clip.mp4", bytes_a, "video/mp4")}
+    r1 = c.post("/api/upload", files=upload, data={"model_tag": "audit_edge"})
+    r2 = c.post("/api/upload", files=upload, data={"model_tag": "audit_edge"})
     assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["model_tag"] == "audit_edge"
     assert r1.json()["duplicate"] is False
     assert r2.json()["duplicate"] is True
     assert r2.json()["video_id"] == r1.json()["video_id"]
+    listed = c.get("/api/videos").json()
+    assert listed[0]["model_tag"] == "audit_edge"
+    assert len(list((tmp_path / "runtime-data" / "videos").glob("*.mp4"))) == 1
+
+
+def test_subjective_rejects_empty_dimensions(isolated_db, tmp_path):
+    c = TestClient(server_mod.server)
+    vid = _upload(c, tmp_path)
+    r = c.post("/api/score/subjective", json={
+        "video_id": vid, "role": "user", "rater_id": "u_001",
+        "dims": {}, "gate": "na"})
+    assert r.status_code == 400
+    assert "至少" in r.json()["detail"]
+
+
+def test_subjective_rejects_blank_rater_and_unknown_gate(isolated_db, tmp_path):
+    c = TestClient(server_mod.server)
+    vid = _upload(c, tmp_path)
+    blank = c.post("/api/score/subjective", json={
+        "video_id": vid, "role": "user", "rater_id": " ",
+        "dims": {"D01": 7}, "gate": "na"})
+    gate = c.post("/api/score/subjective", json={
+        "video_id": vid, "role": "user", "rater_id": "u_001",
+        "dims": {"D01": 7}, "gate": "layout"})
+    assert blank.status_code == 400
+    assert gate.status_code == 400
+
+
+def test_failed_local_signal_does_not_persist(isolated_db, monkeypatch):
+    c = TestClient(server_mod.server)
+    monkeypatch.setattr(server_mod, "get_video_path", lambda _vid: "clip.mp4")
+    monkeypatch.setattr(server_mod, "signal_metrics", lambda _path, dims: {
+        "D03": {"value": None, "confidence": None, "note": "帧数不足"}
+    })
+    r = c.post("/api/evaluate/D03", data={"video_id": "v"})
+    assert r.status_code == 502
+    assert "帧数不足" in r.json()["detail"]
+    conn = storage.get_conn()
+    assert conn.execute("SELECT COUNT(*) FROM scores").fetchone()[0] == 0
+    conn.close()
 
 
 def test_reliability_empty_structure():

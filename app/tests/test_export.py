@@ -16,6 +16,14 @@ def test_expert_overrides_subjective(tmp_env, real_video):
     assert rows[vid]["D08"]["value"] == 2
 
 
+def test_latest_expert_arbitration_wins(tmp_env, real_video):
+    vid = storage.add_video(real_video)["video_id"]
+    storage.save_subjective(vid, "expert", "exp", {"D01": 4}, "na", "", "", "")
+    storage.save_subjective(vid, "expert", "exp", {"D01": 9}, "na", "", "", "")
+    rows = {video_id: sc for video_id, _tag, sc in _human_score_rows()}
+    assert rows[vid]["D01"]["value"] == 9
+
+
 def test_export_vbench_writes_leaderboard(tmp_env, monkeypatch):
     monkeypatch.setattr(export, "BASE", str(tmp_env))
     storage.save_subjective("v", "user", "r1", {"D01": 7}, "na", "", "", "")

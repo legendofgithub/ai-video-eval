@@ -14,7 +14,8 @@ def _human_score_rows():
     subjective means. Returns list of (video_id, model_tag, scores_dict)."""
     conn = get_conn(); c = conn.cursor()
     c.execute("""SELECT s.video_id, v.model_tag, s.method, s.scores, s.is_valid
-                 FROM scores s JOIN videos v ON v.video_id=s.video_id""")
+                 FROM scores s JOIN videos v ON v.video_id=s.video_id
+                 ORDER BY s.created_at, s.score_id""")
     rows = c.fetchall(); conn.close()
     by_vid = {}
     for vid, tag, method, sc_json, is_valid in rows:

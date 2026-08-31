@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Inter-rater reliability: ICC(2,1) across videos and raters."""
+"""Inter-rater reliability: ICC(2,1) and Krippendorff's alpha."""
+from collections import Counter
+
 import json
 
 import numpy as np
@@ -32,9 +34,11 @@ def compute_icc_matrix(dim_id):
     row_means = M.mean(axis=1)
     BMS = k * np.sum((row_means - grand) ** 2) / (n - 1)
     WMS = np.sum((M - row_means[:, None] - col_means[None, :] + grand) ** 2) / (n * (k - 1))
-    if BMS + (k - 1) * WMS == 0:
+    CMS = n * np.sum((col_means - grand) ** 2) / (k - 1)
+    denominator = BMS + (k - 1) * WMS + (k / n) * (CMS - WMS)
+    if denominator == 0:
         return None
-    icc = (BMS - WMS) / (BMS + (k - 1) * WMS)
+    icc = (BMS - WMS) / denominator
     return round(float(icc), 3)
 
 
@@ -42,8 +46,8 @@ def compute_krippendorff_alpha(dim_id):
     """Krippendorff's α (interval data) across videos (units) and raters.
 
     Uses the same source as compute_icc_matrix: method='subjective',
-    is_valid=1. Returns None when there are fewer than 2 rated units or a
-    unit with <2 raters.
+    is_valid=1. Returns None when there are fewer than 2 rated units, a
+    unit has <2 raters, or agreement is undefined because all values match.
     """
     conn = get_conn(); c = conn.cursor()
     c.execute("""SELECT video_id, rater_id, scores FROM scores
@@ -57,26 +61,38 @@ def compute_krippendorff_alpha(dim_id):
     units = {v: d for v, d in units.items() if len(d) >= 2}
     if len(units) < 2:
         return None
-    all_vals = [val for d in units.values() for val in d.values()]
-    n = len(all_vals)
-    do = 0.0
-    de = 0.0
-    for d in units.values():
-        vals = list(d.values())
-        nu = len(vals)
-        s_obs = 0.0
-        for i in range(nu):
-            for j in range(i + 1, nu):
-                s_obs += (vals[i] - vals[j]) ** 2
-        do += s_obs
-        mu = sum(vals) / nu
-        s_var = sum((v - mu) ** 2 for v in vals)
-        de += (nu / (nu - 1)) * s_var
-    if n - 1 == 0:
+    observed: dict[float, dict[float, float]] = {}
+    value_counts: Counter[float] = Counter()
+    for ratings in units.values():
+        counts = Counter(ratings.values())
+        pairable = sum(counts.values())
+        values = sorted(counts)
+        for i, left in enumerate(values):
+            value_counts[left] += counts[left]
+            row = observed.setdefault(left, {})
+            row[left] = row.get(left, 0.0) + counts[left] * (counts[left] - 1) / (pairable - 1)
+            for right in values[i + 1:]:
+                pair = counts[left] * counts[right] / (pairable - 1)
+                row[right] = row.get(right, 0.0) + pair
+                reverse = observed.setdefault(right, {})
+                reverse[left] = reverse.get(left, 0.0) + pair
+
+    values = sorted(value_counts)
+    if len(values) < 2:
         return None
-    do /= (n - 1)
-    de /= (n - 1)
-    if de == 0:
+    total_values = sum(value_counts.values())
+    observed_distance = 0.0
+    expected_distance = 0.0
+    for i, left in enumerate(values):
+        for right in values[i:]:
+            distance = (left - right) ** 2
+            observed_distance += distance * observed.get(left, {}).get(right, 0.0)
+            expected_count = (
+                value_counts[left] * value_counts[right]
+                - (right == left) * value_counts[left]
+            ) / (total_values - 1)
+            expected_distance += distance * expected_count
+    if expected_distance == 0:
         return None
-    alpha = 1 - do / de
+    alpha = 1 - observed_distance / expected_distance
     return round(float(alpha), 3)

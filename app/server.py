@@ -39,6 +39,7 @@ from core import (
     save_subjective,
     signal_metrics,
 )
+from core.logger import get_logger
 
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -63,6 +64,7 @@ def _web_dir():
 
 
 WEB_DIR = _web_dir()
+log = get_logger("videoeval.server")
 
 init_db()
 
@@ -183,6 +185,10 @@ def evaluate(dim_id: str, video_id: str = Form(...),
 
     if dim_id in TEMPORAL_SIGNAL_DIMS:
         res = signal_metrics(get_video_path(video_id), [dim_id])[dim_id]
+        if res.get("value") is None:
+            raise HTTPException(
+                status_code=502,
+                detail=f"评测失败：{res.get('note') or 'LOCAL_SIGNAL_FAILED'}")
         insert_objective_score(video_id, dim_id, res,
                                rater="signal_local", model="local_cpu",
                                task_id="task_web")
@@ -221,6 +227,10 @@ def post_subjective(p: SubjectiveIn):
     """Persist a human/expert rating (expert role => arbitration override)."""
     if p.role not in ("user", "expert"):
         raise HTTPException(status_code=400, detail="role 必须是 user 或 expert")
+    if not p.rater_id.strip():
+        raise HTTPException(status_code=400, detail="评测者 ID 不能为空")
+    if not p.dims:
+        raise HTTPException(status_code=400, detail="至少提交一个维度的评分")
     if not get_video_path(p.video_id):
         raise HTTPException(status_code=404, detail="视频不存在")
     try:
@@ -250,6 +260,17 @@ def export_vbench_ep():
     path = export_vbench()
     return FileResponse(path, media_type="application/json",
                         filename="vbench_export.json")
+
+
+def _report_port_busy(port):
+    message = f"端口 {port} 已被占用，请关闭已有实例或用 VIDEOEVAL_PORT 指定其他端口"
+    log.error(message)
+    if getattr(sys, "frozen", False):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "AI 视频质量评测", 0x10)
+        except Exception:
+            pass
 
 
 # Static front-end last so /api routes take precedence.
@@ -289,6 +310,9 @@ def _start_tray(port):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("VIDEOEVAL_PORT", "8765"))
+    if not is_port_free(port):
+        _report_port_busy(port)
+        raise SystemExit(2)
     no_browser = os.environ.get("VIDEOEVAL_NO_BROWSER", "").lower() in {"1", "true", "yes"}
     if getattr(sys, "frozen", False):
         # Windowed build: serve from the tray; browser opens via the tray menu.
