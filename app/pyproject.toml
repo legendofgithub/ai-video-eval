@@ -1,0 +1,26 @@
+[project]
+name = "videoeval"
+version = "0.4.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+include = ["core", "tests", "server.py"]
+exclude = ["app.py", "web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501", "B008"]  # B008: FastAPI File/Form idiom
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+follow_imports = "silent"
+exclude = "app.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

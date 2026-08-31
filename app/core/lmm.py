@@ -8,7 +8,10 @@ import re
 from openai import OpenAI
 from PIL import Image, ImageDraw
 
+from .logger import get_logger
 from .media import frame_to_b64
+
+log = get_logger("videoeval.lmm")
 
 
 def build_dim_prompt(dim, prompt_text=None):
@@ -38,9 +41,11 @@ def score_one_dim(client, model, dim, frame_paths, prompt_text, temperature):
         if m:
             obj = json.loads(m.group(0))
             val = float(obj.get("value", -1))
+            confidence = round(
+                min(1.0, max(0.0, float(obj.get("confidence", 0.5)))), 2)
             if 0 <= val <= 10:
                 return {"value": round(val, 2),
-                        "confidence": round(float(obj.get("confidence", 0.5)), 2),
+                        "confidence": confidence,
                         "note": str(obj.get("note", ""))}
     except Exception as e:
         return {"value": None, "confidence": None, "note": f"LMM_ERROR: {e}"}
@@ -59,24 +64,42 @@ def _vision_test_image():
 
 def probe_vision(base_url, api_key, model):
     """Return {has_vision, reply/reason}: send a red circle and require the
-    model to name both shape and color."""
+    model to name both shape and color via strict JSON when possible."""
     if not (base_url and api_key and model):
         return {"has_vision": False, "reason": "配置不完整"}
     try:
         client = OpenAI(base_url=base_url, api_key=api_key, timeout=60)
         content = [
-            {"type": "text", "text": "请描述这张图片中的形状和颜色，不超过10个字。"},
+            {"type": "text", "text":
+                '请看这张图片，仅输出 JSON：{"shape": "<形状>", "color": "<颜色>"}，'
+                "不要输出其他文字。"},
             {"type": "image_url", "image_url": {"url": _vision_test_image()}},
         ]
         resp = client.chat.completions.create(
             model=model, temperature=0,
             messages=[{"role": "user", "content": content}])
         txt = (resp.choices[0].message.content or "").strip()
-        has_shape = any(k in txt for k in ("圆", "circle", "Circular", "circular"))
-        has_color = any(k in txt for k in ("红", "red", "Red"))
+        shape, color = "", ""
+        m = re.search(r"\{.*\}", txt, re.DOTALL)
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                shape = str(obj.get("shape", "")).lower()
+                color = str(obj.get("color", "")).lower()
+            except json.JSONDecodeError:
+                pass
+        # Fallback keyword matching for models that ignore the JSON request.
+        if not (shape or color):
+            shape = txt.lower()
+            color = txt.lower()
+        has_shape = any(k in shape for k in ("圆", "circle", "circular"))
+        has_color = any(k in color for k in ("红", "red", "crimson", "scarlet"))
         if has_shape and has_color:
+            log.info("vision probe ok: model=%s reply=%s", model, txt[:60])
             return {"has_vision": True, "reply": txt}
+        log.warning("vision probe failed: model=%s reply=%s", model, txt[:80])
         return {"has_vision": False,
                 "reason": f"模型未能正确描述测试图：{txt[:60]}"}
     except Exception as e:
+        log.warning("vision probe error: model=%s err=%s", model, e)
         return {"has_vision": False, "reason": f"API_ERROR: {e}"}

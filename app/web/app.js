@@ -17,6 +17,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 let confirmAction = null;
+let restoreScoresToken = 0;
 
 function showModal(msg) {
   $("modalMsg").textContent = msg;
@@ -56,6 +57,9 @@ function renderDims() {
   for (const d of state.dims) {
     const card = document.createElement("div");
     card.className = "dim-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `测试 ${d.dim_id} ${d.name}`);
     card.innerHTML = `
       ${d.needs_vision
         ? '<span class="corner-badge">需视觉模型</span>'
@@ -68,6 +72,12 @@ function renderDims() {
         ? `<span class="tested-score">${state.results[d.dim_id].value} 分</span>`
         : ""}`;
     card.addEventListener("click", () => onDimClick(d));
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onDimClick(d);
+      }
+    });
     grid.appendChild(card);
   }
   const n = Object.keys(state.results).length;
@@ -79,9 +89,30 @@ function setPendingVideo(v, extra) {
   $("pendingVideo").hidden = !v;
   $("dropZone").style.display = v ? "none" : "";
   if (v) {
+    restoreScores(v.video_id);
     $("pvName").textContent = v.filename || v.video_id;
     $("pvInfo").textContent = extra ||
       `${v.resolution || ""} · ${v.duration_sec || "?"}s · ${v.model_tag || "未标模型"}`;
+  } else {
+    restoreScoresToken += 1;
+    state.results = {};
+    renderDims();
+  }
+}
+
+async function restoreScores(videoId) {
+  const token = ++restoreScoresToken;
+  state.results = {};
+  renderDims();
+  try {
+    const r = await (await fetch(`/api/scores?video_id=${videoId}`)).json();
+    if (token !== restoreScoresToken || state.video?.video_id !== videoId) return;
+    state.results = Object.fromEntries(
+      Object.entries(r || {}).filter(([, score]) => score.value != null),
+    );
+    renderDims();
+  } catch {
+    if (token === restoreScoresToken && state.video?.video_id === videoId) renderDims();
   }
 }
 

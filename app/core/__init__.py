@@ -7,7 +7,7 @@ metrics, statistics and VBench export all live here. UI layers stay thin.
 from .dimensions import (DIMENSIONS, DIM_IDS, DIM_NAME, DEFAULT_SPEC_ID,
                          TEMPORAL_SIGNAL_DIMS)
 from .storage import (BASE, DATA, VIDEOS_DIR, FRAMES_DIR, DB, CONFIG_PATH,
-                      get_conn, init_db, load_config, save_config,
+                      MAX_UPLOAD_MB, get_conn, init_db, load_config, save_config,
                       add_video, delete_video, get_video_path, list_videos,
                       save_subjective, insert_objective_score)
 from .media import md5_file, video_meta, validate_video, sample_frames, frame_to_b64
@@ -19,7 +19,7 @@ from .export import _human_score_rows, _dim_value, export_vbench
 __all__ = [
     "DIMENSIONS", "DIM_IDS", "DIM_NAME", "DEFAULT_SPEC_ID", "TEMPORAL_SIGNAL_DIMS",
     "BASE", "DATA", "VIDEOS_DIR", "FRAMES_DIR", "DB", "CONFIG_PATH",
-    "get_conn", "init_db", "load_config", "save_config",
+    "get_conn", "init_db", "load_config", "save_config", "MAX_UPLOAD_MB",
     "add_video", "delete_video", "get_video_path", "list_videos",
     "save_subjective", "insert_objective_score",
     "md5_file", "video_meta", "validate_video", "sample_frames", "frame_to_b64",

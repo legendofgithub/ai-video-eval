@@ -9,14 +9,16 @@
    ```
 3. 浏览器自动打开 `http://localhost.7860`
 
-## 分发给他人（方式二：PyInstaller 单 exe）
+## 分发网页版（方式二：PyInstaller 单 exe）
 构建命令（在 app/ 目录）：
 ```
 pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name VideoEval app.py
+pyinstaller --noconfirm --onefile --name VideoEvalWeb --add-data "web;web" server.py
 ```
-产物在 `dist/VideoEval.exe`，拷贝 + 解压即双击运行（自动起 localhost 并开浏览器）。
-> 注意：Gradio 打包后体积较大（约数百 MB），属正常。接收方无需装 Python。
+产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行：打开一个控制台日志窗口，并自动打开浏览器 `http://127.0.0.1:8765`。评测数据保存在 exe 同目录的 `data/` 与 `evaluation.db`。
+
+> 不要加 `--windowed`：无控制台模式下 uvicorn 会因缺少 stdio 直接退出（已实测），控制台窗口同时承担日志显示。
+> 注意：打包后体积较大（约百余 MB），属正常。接收方无需装 Python。
 > 分发压缩包严禁携带 `config.json`、`evaluation.db`、`data/` 与任何测试脚本：它们可能包含你的 API Key、评测记录和视频数据。
 
 ## LMM 自动评测配置（在「⑥ 设置」页填写）
@@ -43,6 +45,7 @@ pyinstaller --noconfirm --onefile --windowed --name VideoEval app.py
 > 提示：API Key 仅保存在当前浏览器会话中，服务端不落盘。
 
 ## 安全与开发规范
+- 精确复现环境用 `pip install -r requirements.lock`；`requirements.txt` 仅声明最低版本。
 - API Key 只通过界面「⑥ 设置」或环境变量 `DEEPSEEK_API_KEY` 注入，严禁写入代码、config 示例或提交到版本库。
 - 克隆本仓库后先复制 `config.example.json` 为 `config.json`，再按需填写本地配置。
 - `config.json`、`evaluation.db`、`data/`、`测试用例/` 已在 `.gitignore` 中排除，属于本机运行数据。

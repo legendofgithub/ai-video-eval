@@ -8,8 +8,11 @@ from openai import OpenAI
 
 from .dimensions import DIMENSIONS, TEMPORAL_SIGNAL_DIMS
 from .lmm import score_one_dim
+from .logger import get_logger
 from .media import sample_frames
 from .storage import FRAMES_DIR, get_video_path, load_config
+
+log = get_logger("videoeval.evaluate")
 
 
 def _sample_gray_frames(path, n=24, size=(320, 180)):
@@ -130,6 +133,7 @@ def auto_evaluate(video_id, dims, lmm_cfg=None, prompt_text=None):
                                    "confidence": round(float(np.mean(agg["confidence"])), 2),
                                    "note": agg["note"]}
     except Exception as e:
+        log.warning("LMM unavailable: %s", e)
         for d in lmm_dims:
             if d not in results:
                 results[d] = {"value": None, "confidence": None,

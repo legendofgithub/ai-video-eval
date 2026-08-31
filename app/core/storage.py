@@ -2,15 +2,27 @@
 """SQLite storage and video lifecycle operations (single source of truth)."""
 import datetime
 import json
+import math
 import os
 import shutil
 import sqlite3
+import sys
 import uuid
 
-from .dimensions import DIMENSIONS, DEFAULT_SPEC_ID
+from .dimensions import DIMENSIONS, DIM_IDS, DEFAULT_SPEC_ID
+from .logger import get_logger
 from .media import md5_file, video_meta, validate_video, sample_frames
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log = get_logger("videoeval.storage")
+
+def _app_base():
+    """Frozen exe keeps persistent data next to the executable."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+BASE = _app_base()
 DATA = os.path.join(BASE, "data")
 VIDEOS_DIR = os.path.join(DATA, "videos")
 FRAMES_DIR = os.path.join(DATA, "frames")
@@ -91,6 +103,7 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
     if size_mb > max_mb:
         raise ValueError(f"文件超过上限 {max_mb}MB")
     if not validate_video(src):
+        log.warning("upload rejected (invalid video): %s", src)
         raise ValueError("无法读取视频或分辨率无效")
 
     vid = uuid.uuid4().hex[:8]
@@ -104,6 +117,7 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
     if dup:
         conn.close()
         os.remove(dst)
+        log.info("upload duplicate resolved: %s -> %s", src, dup[0])
         return {"video_id": dup[0], "duplicate": True}
 
     fps, frames, w, hgt, dur = video_meta(dst)
@@ -117,6 +131,8 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
                round(size_mb, 2), prompt_text, model_tag,
                datetime.datetime.now().isoformat(), thumb))
     conn.commit(); conn.close()
+    log.info("video added: id=%s file=%s res=%s", vid, os.path.basename(src),
+             f"{w}x{hgt}")
     return {
         "video_id": vid, "duplicate": False, "filename": os.path.basename(src),
         "duration_sec": round(dur, 2), "fps": int(fps or 24),
@@ -144,6 +160,7 @@ def delete_video(video_id):
     c.execute("DELETE FROM scores WHERE video_id=?", (video_id,))
     c.execute("DELETE FROM videos WHERE video_id=?", (video_id,))
     conn.commit(); conn.close()
+    log.info("video deleted: id=%s", video_id)
     return {"ok": True, "deleted": video_id}
 
 
@@ -172,10 +189,16 @@ def insert_objective_score(video_id, dim_id, res, rater, model,
 def save_subjective(video_id, role, rater_id, dims_vals, gate, note_text,
                     ab_choice, ab_vs):
     """Save a human/expert rating. gate: technical/physical/semantic/na."""
+    unknown = set(dims_vals) - set(DIM_IDS)
+    if unknown:
+        raise ValueError(f"未知评测维度: {', '.join(sorted(unknown))}")
     scores = {}
     for dim_id, v in dims_vals.items():
         if v is not None:
-            scores[dim_id] = {"value": float(v), "confidence": None, "note": ""}
+            value = float(v)
+            if not math.isfinite(value) or not 0 <= value <= 10:
+                raise ValueError("评分必须在 0-10 之间")
+            scores[dim_id] = {"value": value, "confidence": None, "note": ""}
     is_valid = 1
     for dim_id in ("D08", "D09", "D10"):
         if dim_id in scores and scores[dim_id]["value"] <= 4 and gate != "physical":

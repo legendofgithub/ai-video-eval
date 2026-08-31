@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """10-core evaluation dimensions (aligned with PRD v0.3 and Task-2 schema)."""
 
-DIMENSIONS = [
+DIMENSIONS: list[dict] = [
     {"dim_id": "D01", "name": "成像质量", "layer": "technical",
      "anchor_low": "明显噪点/模糊/压缩块", "anchor_mid": "基本清晰偶有瑕疵", "anchor_high": "通透清晰无伪影"},
     {"dim_id": "D02", "name": "美学质量", "layer": "technical",

@@ -40,6 +40,7 @@ def validate_video(path):
 
 
 def sample_frames(path, n=8, out_dir=None):
+    n = max(1, min(int(n), 64))
     cap = cv2.VideoCapture(path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     if total == 0:
