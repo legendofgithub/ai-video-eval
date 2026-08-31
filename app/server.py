@@ -7,14 +7,17 @@ the core package; this module stays a thin HTTP adapter.
 import json
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import threading
 import webbrowser
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from core import (
     DIMENSIONS,
@@ -22,19 +25,35 @@ from core import (
     TEMPORAL_SIGNAL_DIMS,
     add_video,
     auto_evaluate,
+    compute_icc_matrix,
+    compute_krippendorff_alpha,
     dashboard_data,
     delete_video,
+    export_vbench,
     get_conn,
     get_video_path,
     init_db,
     insert_objective_score,
     list_videos,
     probe_vision,
+    save_subjective,
     signal_metrics,
 )
 
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def is_port_free(port, host="127.0.0.1"):
+    """Probe whether a TCP port can be bound (used before launch to detect
+    a port already occupied by another instance)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+        return True
 
 
 def _web_dir():
@@ -186,17 +205,100 @@ def evaluate(dim_id: str, video_id: str = Form(...),
     return {"dim_id": dim_id, **res, "method": "objective"}
 
 
+class SubjectiveIn(BaseModel):
+    video_id: str
+    role: str = "user"          # user | expert
+    rater_id: str = "anon"
+    dims: dict = {}             # {dim_id: 0-10}
+    gate: str = "na"            # technical | physical | semantic | na
+    note: str = ""
+    ab_choice: Optional[str] = None
+    ab_vs: Optional[str] = None
+
+
+@server.post("/api/score/subjective")
+def post_subjective(p: SubjectiveIn):
+    """Persist a human/expert rating (expert role => arbitration override)."""
+    if p.role not in ("user", "expert"):
+        raise HTTPException(status_code=400, detail="role 必须是 user 或 expert")
+    if not get_video_path(p.video_id):
+        raise HTTPException(status_code=404, detail="视频不存在")
+    try:
+        detail = save_subjective(p.video_id, p.role, p.rater_id, p.dims,
+                                 p.gate, p.note, p.ab_choice, p.ab_vs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "detail": detail}
+
+
+@server.get("/api/reliability")
+def reliability():
+    """Per-dimension inter-rater reliability: ICC(2,1) and Krippendorff's α."""
+    out = []
+    for d in DIMENSIONS:
+        out.append({
+            "dim_id": d["dim_id"], "name": d["name"],
+            "icc": compute_icc_matrix(d["dim_id"]),
+            "krippendorff_alpha": compute_krippendorff_alpha(d["dim_id"]),
+        })
+    return out
+
+
+@server.get("/api/export/vbench")
+def export_vbench_ep():
+    """Regenerate and download the VBench-compatible leaderboard JSON."""
+    path = export_vbench()
+    return FileResponse(path, media_type="application/json",
+                        filename="vbench_export.json")
+
+
 # Static front-end last so /api routes take precedence.
 server.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+
+
+def _start_tray(port):
+    """Launch a system-tray icon for windowed (frozen) builds.
+
+    Returns True on success. Imports are deferred so dev/console runs never
+    require pystray/Pillow to be installed.
+    """
+    try:
+        import pystray
+        from PIL import Image
+    except Exception as e:  # pragma: no cover - depends on optional deps
+        print(f"[tray] unavailable: {e}")
+        return False
+    img = Image.new("RGB", (64, 64), (37, 99, 235))
+
+    def open_browser(icon, item):
+        webbrowser.open(f"http://127.0.0.1:{port}")
+
+    def quit_app(icon, item):
+        icon.stop()
+        os._exit(0)
+
+    menu = pystray.Menu(
+        pystray.MenuItem("打开浏览器", open_browser),
+        pystray.MenuItem("退出", quit_app),
+    )
+    icon = pystray.Icon("VideoEvalWeb", img, "AI 视频质量评测", menu)
+    threading.Thread(target=icon.run, daemon=True).start()
+    return True
 
 
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("VIDEOEVAL_PORT", "8765"))
     no_browser = os.environ.get("VIDEOEVAL_NO_BROWSER", "").lower() in {"1", "true", "yes"}
-    if not no_browser:
-        threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
-    if sys.stderr is None:
+    if getattr(sys, "frozen", False):
+        # Windowed build: serve from the tray; browser opens via the tray menu.
+        if not no_browser:
+            if not _start_tray(port):
+                threading.Timer(1.5, lambda: webbrowser.open(
+                    f"http://127.0.0.1:{port}")).start()
         uvicorn.run(server, host="127.0.0.1", port=port, log_config=None)
     else:
+        if not no_browser:
+            threading.Timer(1.5, lambda: webbrowser.open(
+                f"http://127.0.0.1:{port}")).start()
         uvicorn.run(server, host="127.0.0.1", port=port)

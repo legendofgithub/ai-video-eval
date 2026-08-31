@@ -487,3 +487,22 @@ main.view { max-width: 1080px; margin: 0 auto; padding: 0 20px 56px; }
   .lb-table { font-size: 12px; }
   .lb-table th, .lb-table td { padding: 7px 6px; }
 }
+
+/* 评分工作台 */
+.wb-group { margin-bottom: 14px; }
+.wb-group h3 { font-size: 13px; color: var(--muted); margin: 6px 0 8px; }
+.wb-row { display: grid; grid-template-columns: 110px 1fr 44px 1fr; align-items: center;
+  gap: 10px; padding: 5px 0; border-bottom: 1px dashed #eef2f8; }
+.wb-dim { font-weight: 600; font-size: 13px; }
+.wb-val { text-align: center; font-variant-numeric: tabular-nums; color: var(--blue-600); font-weight: 700; }
+.wb-anchor { font-size: 11px; color: var(--muted); }
+.wb-range { width: 100%; }
+.gate-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  margin-top: 12px; padding: 10px 12px; background: #f7f9fc; border-radius: 10px; }
+.gate-row .gate-label { font-weight: 600; font-size: 13px; }
+.gate-row label { font-size: 13px; display: inline-flex; gap: 5px; align-items: center; }
+
+@media (max-width: 820px) {
+  .wb-row { grid-template-columns: 92px 1fr 40px; }
+  .wb-row .wb-anchor { grid-column: 1 / -1; }
+}

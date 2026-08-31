@@ -292,10 +292,14 @@ function showView(view) {
   $("viewHome").hidden = true;
   $("viewBoard").hidden = true;
   $("viewDim").hidden = true;
+  $("viewWork").hidden = true;
   if (view === "home") $("viewHome").hidden = false;
   else if (view === "board") {
     $("viewBoard").hidden = false;
     loadDashboard();
+  } else if (view === "work") {
+    $("viewWork").hidden = false;
+    loadWorkbench();
   }
   document.querySelectorAll(".nav-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === view));
@@ -490,6 +494,111 @@ function renderWorldBoard(wm) {
     ${yticks}${bars}</svg>`;
 }
 
+async function loadWorkbench() {
+  try {
+    const list = await (await fetch("/api/videos")).json();
+    const sel = $("wbVideo");
+    sel.innerHTML = list.length
+      ? list.map((v) => `<option value="${v.video_id}">${escapeHtml(v.filename)} (${v.model_tag || "未标模型"})</option>`).join("")
+      : `<option value="">（暂无视频，请先去主页上传）</option>`;
+    buildSliders();
+    await loadReliability();
+  } catch (e) {
+    showModal("工作台加载失败：" + e.message);
+  }
+}
+
+function buildSliders() {
+  const wrap = $("wbSliders");
+  const groups = {
+    technical: "技术质量",
+    semantic: "内容语义",
+    world_model: "世界模型 / 内在真实性",
+  };
+  let html = "";
+  for (const [layer, title] of Object.entries(groups)) {
+    const ds = state.dims.filter((d) => d.layer === layer);
+    if (!ds.length) continue;
+    html += `<div class="wb-group"><h3>${title}</h3>`;
+    for (const d of ds) {
+      html += `<div class="wb-row">
+        <span class="wb-dim">${d.dim_id} ${d.name}</span>
+        <input type="range" min="0" max="10" step="0.5" value="5" data-dim="${d.dim_id}" class="wb-range">
+        <span class="wb-val" id="wbval_${d.dim_id}">5.0</span>
+        <span class="wb-anchor">低:${d.anchor_low} → 高:${d.anchor_high}</span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll(".wb-range").forEach((el) => {
+    el.addEventListener("input", () => {
+      $("wbval_" + el.dataset.dim).textContent = Number(el.value).toFixed(1);
+    });
+  });
+}
+
+async function submitWorkbench() {
+  const videoId = $("wbVideo").value;
+  if (!videoId) { showModal("请先去主页上传视频"); return; }
+  const dims = {};
+  $("wbSliders").querySelectorAll(".wb-range").forEach((el) => {
+    dims[el.dataset.dim] = parseFloat(el.value);
+  });
+  const gate = (document.querySelector('input[name="wbGate"]:checked') || {}).value || "na";
+  const payload = {
+    video_id: videoId,
+    role: $("wbRole").value,
+    rater_id: ($("wbRater").value.trim() || (($("wbRole").value === "expert" ? "expert" : "user") + "_anon")),
+    dims, gate,
+    note: $("wbNote").value.trim(),
+  };
+  const btn = $("wbSubmit");
+  btn.disabled = true;
+  $("wbSaveMsg").textContent = "保存中…";
+  try {
+    const resp = await fetch("/api/score/subjective", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(j.detail || `保存失败 (${resp.status})`);
+    $("wbSaveMsg").textContent = "✓ " + (j.detail || "已保存") + " — 可切到数据看板查看";
+    await loadReliability();
+  } catch (e) {
+    $("wbSaveMsg").textContent = "✗ " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadReliability() {
+  const wrap = $("reliability");
+  try {
+    const rows = await (await fetch("/api/reliability")).json();
+    if (!rows.length) { wrap.innerHTML = '<p class="hint">暂无数据。</p>'; return; }
+    const body = rows.map((r) => {
+      const icc = r.icc == null ? "样本不足" : r.icc;
+      const al = r.krippendorff_alpha == null ? "样本不足" : r.krippendorff_alpha;
+      const warnIcc = r.icc != null && r.icc < 0.6;
+      const warnAl = r.krippendorff_alpha != null && r.krippendorff_alpha < 0.667;
+      return `<tr>
+        <td>${r.dim_id} ${r.name}</td>
+        <td class="num ${warnIcc ? "bad" : ""}">${icc}</td>
+        <td class="num ${warnAl ? "bad" : ""}">${al}</td>
+      </tr>`;
+    }).join("");
+    wrap.innerHTML = `<table class="lb-table"><thead><tr><th>维度</th><th class="num">ICC(2,1)</th><th class="num">Krippendorff's α</th></tr></thead><tbody>${body}</tbody></table>`;
+  } catch (e) {
+    wrap.innerHTML = `<p class="hint">一致性加载失败：${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function exportVbench() {
+  window.location.href = "/api/export/vbench";
+}
+
 function init() {
   $("lmmBase").value = localStorage.getItem("ve_base") || "";
   $("lmmModel").value = localStorage.getItem("ve_model") || "";
@@ -513,6 +622,8 @@ function init() {
   $("btnCheckVision").addEventListener("click", checkVision);
   $("btnBack").addEventListener("click", () => showView("home"));
   $("btnRun").addEventListener("click", runTest);
+  $("wbSubmit").addEventListener("click", submitWorkbench);
+  $("wbExport").addEventListener("click", exportVbench);
   $("modalOk").addEventListener("click", () => {
     $("modalMask").hidden = true;
     if (confirmAction) { const a = confirmAction; confirmAction = null; a(); }

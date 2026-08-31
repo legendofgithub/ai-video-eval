@@ -106,19 +106,20 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
         log.warning("upload rejected (invalid video): %s", src)
         raise ValueError("无法读取视频或分辨率无效")
 
-    vid = uuid.uuid4().hex[:8]
-    dst = os.path.join(VIDEOS_DIR, f"{vid}{ext}")
-    shutil.copy(src, dst)
-    h = md5_file(dst)
-
+    # Hash first so a duplicate is never copied (cheaper + avoids leaving a
+    # stray file when the dedup path would otherwise delete it).
+    h = md5_file(src)
     conn = get_conn(); c = conn.cursor()
     c.execute("SELECT video_id FROM videos WHERE file_hash=?", (h,))
     dup = c.fetchone()
     if dup:
         conn.close()
-        os.remove(dst)
         log.info("upload duplicate resolved: %s -> %s", src, dup[0])
         return {"video_id": dup[0], "duplicate": True}
+
+    vid = uuid.uuid4().hex[:8]
+    dst = os.path.join(VIDEOS_DIR, f"{vid}{ext}")
+    shutil.copy(src, dst)
 
     fps, frames, w, hgt, dur = video_meta(dst)
     thumb_dir = os.path.join(FRAMES_DIR, vid)

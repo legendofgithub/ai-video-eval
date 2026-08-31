@@ -12,10 +12,10 @@
 ## 分发网页版（方式二：PyInstaller 单 exe）
 构建命令（在 app/ 目录）：
 ```
-pip install pyinstaller
-pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web;web" server.py
+pip install pyinstaller pystray Pillow
+pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web;web" --hidden-import pystray --collect-all pystray server.py
 ```
-产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行，自动打开浏览器 `http://127.0.0.1:8765`。评测数据保存在 exe 同目录的 `data/` 与 `evaluation.db`；运行日志写入 `data/app.log`。
+产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行。窗口化模式下任务栏出现系统托盘图标，菜单可「打开浏览器」或「退出」；无显示环境或托盘不可用时自动回退为启动即开浏览器。评测数据保存在 exe 同目录的 `data/` 与 `evaluation.db`；运行日志写入 `data/app.log`。
 
 自动化验证时可设置 `VIDEOEVAL_NO_BROWSER=1` 禁止自动开浏览器，设置 `VIDEOEVAL_PORT=8876` 指定备用端口。
 > 注意：打包后体积较大（约百余 MB），属正常。接收方无需装 Python。
@@ -27,7 +27,8 @@ pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web
   先 `ollama pull deepseek-vl2` 并 `ollama serve`
 - **GPT-4o**：base_url=`https://api.openai.com/v1`，api_key=你的 key，model=`gpt-4o`
 - **Gemini**：base_url=`https://generativelanguage.googleapis.com/v1beta/openai/`，api_key=你的 key，model=`gemini-2.0-flash`
-> 评测对象为「AI 生成的视频」本身。DeepSeek 官方文本 API(V3/R1) 无视觉能力，须用 VL2 视觉模型。
+- **DeepSeek 视觉**：base_url=`https://api.deepseek.com/v1`，api_key=你的 key，model=`deepseek-v4-flash-vision-exp`
+> 评测对象为「AI 生成的视频」本身。DeepSeek 官方已于 2026 年提供视觉模型 `deepseek-v4-flash-vision-exp`（经实测可用），非仅文本 V3/R1；本地零成本方案仍可用 Ollama + DeepSeek-VL2。
 
 ## 评测流程
 1. ① 上传视频（填 prompt 与模型标识）

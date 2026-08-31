@@ -13,7 +13,7 @@ from .storage import (BASE, DATA, VIDEOS_DIR, FRAMES_DIR, DB, CONFIG_PATH,
 from .media import md5_file, video_meta, validate_video, sample_frames, frame_to_b64
 from .lmm import build_dim_prompt, score_one_dim, probe_vision
 from .evaluate import signal_metrics, auto_evaluate
-from .stats import compute_icc_matrix
+from .stats import compute_icc_matrix, compute_krippendorff_alpha
 from .export import _human_score_rows, _dim_value, dashboard_data, export_vbench
 
 __all__ = [
@@ -25,6 +25,6 @@ __all__ = [
     "md5_file", "video_meta", "validate_video", "sample_frames", "frame_to_b64",
     "build_dim_prompt", "score_one_dim", "probe_vision",
     "signal_metrics", "auto_evaluate",
-    "compute_icc_matrix", "_human_score_rows", "_dim_value", "dashboard_data",
-    "export_vbench",
+    "compute_icc_matrix", "compute_krippendorff_alpha",
+    "_human_score_rows", "_dim_value", "dashboard_data", "export_vbench",
 ]

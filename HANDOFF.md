@@ -86,13 +86,15 @@ cd "F:\AI\codex project\AI视频评测\app"
 - In-app Browser 插件在 Node REPL 初始化时被 `node:process` 导入限制拦截；本轮改用 Playwright 驱动真实 Edge，不影响项目本身。
 - PowerShell `Remove-Item` 被本机策略拦截；临时构建目录用 Python `shutil.rmtree` 并先校验路径位于系统 Temp 下后删除。
 
-## 6. 下一轮建议
+## 6. 下一轮建议（P4 路线执行状态）
 
-1. 设置 `DEEPSEEK_API_KEY` 后执行真实视觉探测与 D01 评测。
-2. 把主观评分、专家仲裁、导出和看板迁入网页端。
-3. 分析 PyInstaller 依赖图，排除测试与未用科学计算包，目标先降到 80MB 内。
-4. 增加端口占用、上传中重复提交、并发上传同一 hash 的测试。
-5. 为窗口化 exe 增加系统托盘或更友好的后台运行方式。
+- **[done] 1. 真实 DeepSeek 视觉链路**：env 门禁就绪，2 个真实 API 测试在 `DEEPSEEK_API_KEY` 未设时按设计跳过（Key 由用户掌握，未在本机执行；README 已更正 DeepSeek 现已提供视觉模型 `deepseek-v4-flash-vision-exp`）。
+- **[done] 2. 主观评分 / 专家仲裁 / ICC+Krippendorff's α 一致性 / VBench 导出** 已全部迁入网页端（新增「评分工作台」视图 + 后端 `POST /api/score/subjective`、`GET /api/reliability`、`GET /api/export/vbench`）。
+- **[skip] 3. 瘦身到 80MB**：用户明确不需要，跳过（体积非约束）。
+- **[done] 4. 边界测试**：新增端口占用探测 `is_port_free`、并发同 hash 上传幂等去重（`add_video` 改为先算哈希再拷贝，避免去重路径 `os.remove`）、重复提交防护测试（`test_duplicate_upload_is_idempotent`、`test_is_port_free_probe`）。
+- **[done] 5. 窗口化 exe 系统托盘**：`server.py` 新增 `_start_tray`，窗口化构建从托盘菜单「打开浏览器 / 退出」；`pystray` 延迟导入，开发/控制台运行不依赖；README 更新打包命令（`--hidden-import pystray --collect-all pystray`）。
+
+> 质量三连（ruff / mypy / pytest）在 R1–R5 全绿：pytest 24 passed, 2 skipped（2 skip 为无 Key 的真实 DeepSeek 用例）。
 
 ## 7. 关键文件
 

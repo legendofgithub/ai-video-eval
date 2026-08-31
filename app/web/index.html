@@ -22,6 +22,7 @@
     <nav class="top-nav">
       <button class="nav-tab active" data-view="home">评测主页</button>
       <button class="nav-tab" data-view="board">数据看板</button>
+      <button class="nav-tab" data-view="work">评分工作台</button>
     </nav>
     <span class="tested-count" id="testedCount">已测 0 / 10</span>
   </header>
@@ -159,6 +160,58 @@
       <div class="card" style="margin-top:18px">
         <div class="card-title"><h2>世界模型子榜 · D08/D09/D10 内在真实性</h2></div>
         <div id="worldBoard"></div>
+      </div>
+    </section>
+  </main>
+
+  <main id="viewWork" class="view" hidden>
+    <section class="board-section">
+      <div class="section-head">
+        <h2>评分工作台</h2>
+        <p>人工主观评分（MOS）与专家仲裁 · 评分落库后可看一致性</p>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>① 选择视频与身份</h2></div>
+        <div class="field-row">
+          <label>视频<select id="wbVideo"></select></label>
+          <label>身份
+            <select id="wbRole">
+              <option value="user">人工标注员</option>
+              <option value="expert">专家仲裁</option>
+            </select>
+          </label>
+          <label>评测者 ID<input type="text" id="wbRater" placeholder="如 u_001 / expert_li"></label>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>② 10 维主观评分（0–10）</h2></div>
+        <div id="wbSliders"></div>
+        <div class="gate-row">
+          <span class="gate-label">低分门控（判断失真的性质）：</span>
+          <label><input type="radio" name="wbGate" value="na" checked> 不适用</label>
+          <label><input type="radio" name="wbGate" value="technical"> 技术失真</label>
+          <label><input type="radio" name="wbGate" value="physical"> 物理/常识错误</label>
+          <label><input type="radio" name="wbGate" value="semantic"> 语义错位</label>
+        </div>
+        <label class="field" style="margin-top:10px">备注（违规类型@时间戳；仲裁理由）
+          <textarea id="wbNote" rows="2" placeholder="如 D08 番茄汁悬浮@00:03；仲裁：覆盖主观低分"></textarea>
+        </label>
+        <button class="btn primary" id="wbSubmit">保存评分</button>
+        <span id="wbSaveMsg" class="hint"></span>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>③ 评分一致性（ICC 与 Krippendorff's α）</h2></div>
+        <div id="reliability"></div>
+        <p class="hint">仅统计 is_valid=1 的人工/专家评分；ICC&lt;0.6 或 α&lt;0.667 标红预警，说明标注员分歧较大。</p>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>④ 导出 VBench 兼容 JSON</h2></div>
+        <button class="btn ghost" id="wbExport">下载 vbench_export.json</button>
+        <p class="hint">仅含已标模型标识的视频（主观/专家有效分）。</p>
       </div>
     </section>
   </main>
