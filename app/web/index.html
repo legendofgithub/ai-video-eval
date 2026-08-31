@@ -23,6 +23,7 @@
       <button class="nav-tab active" data-view="home">评测主页</button>
       <button class="nav-tab" data-view="board">数据看板</button>
       <button class="nav-tab" data-view="work">评分工作台</button>
+      <button class="nav-tab nav-tab-intro" data-view="intro">产品介绍</button>
     </nav>
     <span class="tested-count" id="testedCount">已测 0 / 10</span>
   </header>
@@ -213,6 +214,345 @@
         <button class="btn ghost" id="wbExport">下载 vbench_export.json</button>
         <p class="hint">仅含已标模型标识的视频（主观/专家有效分）。</p>
       </div>
+    </section>
+  </main>
+
+  <main id="viewIntro" class="view" hidden>
+    <section class="intro-hero">
+      <span class="intro-eyebrow">PRODUCT BRIEF</span>
+      <h2>AI 生成视频质量评测工作台</h2>
+      <p class="intro-lede">一套可离线运行、可打包分发的十维视频质量评测系统。用本地信号指标与视觉大模型双路打分，用人工 MOS 与专家仲裁做校准，最终产出可诊断、可复现、可比对的结构化报告。</p>
+      <div class="intro-stats">
+        <div><b>10</b><span>评测维度</span></div>
+        <div><b>3</b><span>能力层级</span></div>
+        <div><b>2</b><span>打分通路</span></div>
+        <div><b>0</b><span>外部基础设施</span></div>
+      </div>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">01</span>
+        <div>
+          <h3>产品定位与硬约束</h3>
+          <p>这不是 SaaS，是一个人的评测工具。约束决定了架构的全部形状。</p>
+        </div>
+      </div>
+      <div class="constraint-grid">
+        <div class="constraint-card">
+          <b>个人自用</b>
+          <span>不做多租户、不做账号体系。评测对象就是本地硬盘上的视频文件。</span>
+        </div>
+        <div class="constraint-card">
+          <b>双击即用</b>
+          <span>PyInstaller 打成单 exe，系统托盘常驻，不要求用户装 Python。</span>
+        </div>
+        <div class="constraint-card">
+          <b>零基础设施</b>
+          <span>SQLite 单文件 + 本地文件系统。没有 Redis、没有对象存储、没有任务队列。</span>
+        </div>
+        <div class="constraint-card">
+          <b>可离线</b>
+          <span>前端零 CDN 依赖，图表全部手写 SVG。断网状态下界面照常渲染。</span>
+        </div>
+      </div>
+      <p class="sec-note">这套约束的直接后果：<b>D03 / D04 两个时序维度必须脱离大模型</b>——因为不能假设用户有可用的视觉 API，也不能为两个维度引入 GPU 依赖。这催生了下面的双路评测设计。</p>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">02</span>
+        <div>
+          <h3>工程架构</h3>
+          <p>四层单向依赖：前端 → 服务层 → 核心层 → 存储层。业务逻辑全部收在核心层。</p>
+        </div>
+      </div>
+
+      <div class="card arch-card">
+        <svg class="arch-figure" viewBox="0 0 680 432" width="100%" role="img" aria-label="四层工程架构图：前端层、服务层、核心层、存储层">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </marker>
+          </defs>
+
+          <rect x="40" y="44" width="600" height="64" rx="8" fill="#eff6ff" stroke="#d9e6ff" stroke-width="0.5"/>
+          <text x="56" y="62" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="500" fill="#1d4ed8">前端层 · 浏览器</text>
+          <rect x="56" y="70" width="568" height="28" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="340" y="88" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">原生 SPA：index.html / app.js / style.css · 零 CDN 依赖</text>
+
+          <path d="M340 108 L340 128" fill="none" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="40" y="132" width="600" height="64" rx="8" fill="#eff6ff" stroke="#d9e6ff" stroke-width="0.5"/>
+          <text x="56" y="150" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="500" fill="#1d4ed8">服务层 · FastAPI</text>
+          <rect x="56" y="158" width="568" height="28" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="340" y="176" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">server.py · 只做路由转发与参数校验，不承载业务逻辑</text>
+
+          <path d="M340 196 L340 216" fill="none" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="40" y="220" width="600" height="104" rx="8" fill="#eff6ff" stroke="#d9e6ff" stroke-width="0.5"/>
+          <text x="56" y="238" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="500" fill="#1d4ed8">核心层 · app/core/（8 个模块，单一业务真相源）</text>
+          <rect x="56" y="248" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="147" y="267" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">dimensions · 维度定义</text>
+          <rect x="248" y="248" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="339" y="267" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">media · 抽帧</text>
+          <rect x="440" y="248" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="531" y="267" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">evaluate · 评测编排</text>
+          <rect x="56" y="284" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="147" y="303" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">lmm · 视觉打分</text>
+          <rect x="248" y="284" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="339" y="303" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">stats · 一致性</text>
+          <rect x="440" y="284" width="183" height="30" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="531" y="303" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">export · 导出聚合</text>
+
+          <path d="M340 324 L340 344" fill="none" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#ar)"/>
+
+          <rect x="40" y="348" width="600" height="64" rx="8" fill="#eff6ff" stroke="#d9e6ff" stroke-width="0.5"/>
+          <text x="56" y="366" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="500" fill="#1d4ed8">存储层 · 本机文件系统</text>
+          <rect x="56" y="374" width="568" height="28" rx="6" fill="#ffffff" stroke="#dbeafe" stroke-width="0.5"/>
+          <text x="340" y="392" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f2a5c" text-anchor="middle">SQLite（WAL 模式）· 视频文件 · 抽帧缓存 · config.json</text>
+        </svg>
+        <p class="hint">storage.py 与 logger.py 同属核心层，图中未单列。服务层与核心层之间的边界是硬性的：任何 SQL、任何模型调用都不允许出现在 server.py 里。</p>
+      </div>
+
+      <h4 class="sub-head">双路评测：不是所有维度都该交给大模型</h4>
+      <div class="dual-grid">
+        <div class="dual-card">
+          <div class="dual-head"><span class="dual-tag dual-tag-a">通路 A · 本地信号</span></div>
+          <div class="dual-dims">D03 时序闪烁 / D04 运动平滑度</div>
+          <p>静态抽帧的致命问题：<b>单张图片观测不到运动</b>。早期版本把这两维也丢给视觉模型，模型自己就承认"缺乏连续帧，运动连贯性无法直接观测"。</p>
+          <ul>
+            <li><b>D03</b>：拉普拉斯边缘方差的时序变异系数 + 帧间差分变异系数，加权成闪烁指数，再指数映射到 0–10 分。</li>
+            <li><b>D04</b>：Farneback 稠密光流求每帧运动幅值，取相邻帧差分的归一化 jerk 作为突变度。</li>
+          </ul>
+          <div class="dual-foot">零 API 成本 · 确定性可复现 · 结果不漂移</div>
+        </div>
+        <div class="dual-card">
+          <div class="dual-head"><span class="dual-tag dual-tag-b">通路 B · 视觉大模型</span></div>
+          <div class="dual-dims">D01 D02 D05 D06 D07 D08 D09 D10</div>
+          <p>语义与世界模型类问题本质上是"看懂画面内容"，这恰好多模态模型擅长。走 OpenAI 兼容协议，因此 GPT-4o / Gemini / DeepSeek 视觉 / 本地 Ollama 可无缝切换。</p>
+          <ul>
+            <li>均匀抽 8 帧送模型（可配置），逐维度独立提问，避免维度间相互污染。</li>
+            <li>支持多次采样取均值，temperature 默认 0，降低打分抖动。</li>
+            <li>模型失败<b>不落库</b>——宁可该维度为空，也不写入不可信分数。</li>
+          </ul>
+          <div class="dual-foot">API Key 只存浏览器会话，不写入磁盘、不进版本库</div>
+        </div>
+      </div>
+
+      <h4 class="sub-head">关键工程决策</h4>
+      <table class="tbl">
+        <thead><tr><th>决策</th><th>做法</th><th>为什么</th></tr></thead>
+        <tbody>
+          <tr><td>大文件上传</td><td>1 MB 分块流式写入，超过 500 MB 直接返回 413</td><td>避免整文件读进内存，也避免用户误传几十 GB 素材把磁盘写满</td></tr>
+          <tr><td>数据库并发</td><td>SQLite 开 WAL，配 busy timeout</td><td>单文件数据库在"评测写入 + 页面轮询"并发下会锁死，WAL 让读写不互斥</td></tr>
+          <tr><td>抽帧写盘</td><td>用 <code>cv2.imencode</code> + 二进制写入，不用 <code>cv2.imwrite</code></td><td>中文路径下 <code>imwrite</code> 静默失败，会导致整个项目在中文目录里直接不可用</td></tr>
+          <tr><td>端口冲突</td><td>启动前探测端口，被占用则记日志、弹窗并以退出码 2 结束</td><td>双击 exe 的用户看不到控制台，静默失败等于"软件坏了"</td></tr>
+          <tr><td>测试隔离</td><td>pytest 用 autouse fixture 把 DB / 媒体目录重定向到临时目录</td><td>否则每次跑测试都会往真实数据目录里塞垃圾视频和评分记录</td></tr>
+          <tr><td>依赖与门禁</td><td>requirements.lock 锁定版本，ruff + mypy 强制通过</td><td>单人项目也需要门禁：它能挡住"改了函数签名但忘了改调用方"这类问题</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">03</span>
+        <div>
+          <h3>评测体系：三层金字塔</h3>
+          <p>从"画面干不干净"到"世界讲不讲道理"，十维按认知层级分三层，低层缺陷不允许污染高层结论。</p>
+        </div>
+      </div>
+
+      <div class="pyramid">
+        <div class="pyr-row pyr-world">
+          <span class="pyr-tag">高层</span>
+          <div><b>世界模型</b><span>D08 物理规律 · D09 人体结构 · D10 常识推理</span></div>
+        </div>
+        <div class="pyr-row pyr-sem">
+          <span class="pyr-tag">中层</span>
+          <div><b>语义对齐</b><span>D05 主体一致性 · D06 背景一致性 · D07 文本-视频对齐</span></div>
+        </div>
+        <div class="pyr-row pyr-tech">
+          <span class="pyr-tag">底层</span>
+          <div><b>技术质量</b><span>D01 成像质量 · D02 美学质量 · D03 时序闪烁 · D04 运动平滑度</span></div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <b>为什么要分层？</b>因为"画面糊"和"人穿墙"是两类完全不同的失败。前者是渲染管线问题，后者是模型对世界的理解错了。混在一起，报告就只能输出"这个视频 5.2 分"——对做模型的人毫无价值。
+      </div>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">04</span>
+        <div>
+          <h3>Benchmark 出题：按能力维度构造题目</h3>
+          <p>出一套能用的题，先要回答"这个能力到底怎么被证伪"。下表逐项给出考察设计，以及本系统当前的真实覆盖状态。</p>
+        </div>
+      </div>
+
+      <table class="tbl tbl-cover">
+        <thead><tr><th>能力维度</th><th>题目怎么出</th><th>对应维度</th><th>覆盖</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>角色一致性</b></td>
+            <td>给同一角色的多段生成结果，考察跨帧、跨镜头的身份保持：发色、服饰、面部特征是否漂移。构造负样本时故意混入中段变脸的样本。</td>
+            <td>D05 主体一致性</td>
+            <td><span class="pill pill-ok">已覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>物理合理性</b></td>
+            <td>设计必现的物理场景：球落地必须反弹、液体必须向下流、物体脱离支撑必须坠落。这类题的判据是客观的，不依赖审美。</td>
+            <td>D08 物理规律<br>D10 常识推理</td>
+            <td><span class="pill pill-ok">已覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>人体结构</b></td>
+            <td>专门出大幅度动作题（挥手、奔跑、转身），因为静态姿态下模型很少出错，错误集中在关节运动的中间帧。</td>
+            <td>D09 人体动作与结构</td>
+            <td><span class="pill pill-ok">已覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>多镜头连贯</b></td>
+            <td>要求生成多镜头序列，考察切点是否合理、场景是否衔接、时空是否连续。</td>
+            <td>D06 背景一致性<br>D04 运动平滑度</td>
+            <td><span class="pill pill-part">部分覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>运镜</b></td>
+            <td>指定明确的镜头语言（推、拉、摇、移、跟随），考察运动是否符合指令且轨迹平滑。</td>
+            <td>D04 运动平滑度</td>
+            <td><span class="pill pill-part">部分覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>口型对齐</b></td>
+            <td>给人物台词 + 音频，考察唇形与音素的同步关系。</td>
+            <td>—</td>
+            <td><span class="pill pill-no">未覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>文字渲染</b></td>
+            <td>在画面中指定需要正确渲染的文字（招牌、字幕、书页），考察字形正确性与稳定性。</td>
+            <td>—</td>
+            <td><span class="pill pill-no">未覆盖</span></td>
+          </tr>
+          <tr>
+            <td><b>音画关系</b></td>
+            <td>考察音效与画面事件是否对齐、环境音是否与场景匹配。</td>
+            <td>—</td>
+            <td><span class="pill pill-no">未覆盖</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-honest">
+        <b>诚实标注：</b>上表后半部分是刻意保留的。<b>口型对齐、文字渲染、音画关系三项当前完全没有覆盖</b>——系统不做音频轨解析，也没有 OCR 专项维度。<b>多镜头连贯与运镜只是部分覆盖</b>：D04 测的是运动流畅度，不等于"运镜语义是否正确"；系统也没有镜头切点检测，无法判断切镜本身是否合理。
+        <br><br>把这四项标成绿色很容易，但那会让整张表失去意义。Benchmark 的价值不在于题多，在于<b>每一道题的判据站得住</b>。
+      </div>
+
+      <h4 class="sub-head">出题之外：反例校准库</h4>
+      <p class="sec-note">纯靠文字规则无法让标注员形成稳定判断。规范里要求建立<b>反例校准库</b>——把典型物理违规做成标准样例，标注员上岗前必须能稳定识别，连续三次一致性偏低就要重新校准。这是把主观评分推向可复现的关键一步。</p>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">05</span>
+        <div>
+          <h3>评分维度与评分细则</h3>
+          <p>每个维度都定义了三级行为锚点，而不是"好 / 中 / 差"这类无法执行的抽象描述。</p>
+        </div>
+      </div>
+
+      <table class="tbl">
+        <thead><tr><th>维度</th><th>2 分档（低锚点）</th><th>5–6 分档（中锚点）</th><th>9 分档（高锚点）</th></tr></thead>
+        <tbody>
+          <tr><td><b>D01</b> 成像质量</td><td>明显噪点 / 模糊 / 压缩块</td><td>基本清晰，偶有瑕疵</td><td>通透清晰无伪影</td></tr>
+          <tr><td><b>D03</b> 时序闪烁</td><td>持续闪烁 / 画面跳动</td><td>偶发微闪</td><td>时序稳定无闪</td></tr>
+          <tr><td><b>D05</b> 主体一致性</td><td>主体外观频繁变化</td><td>主体大体一致</td><td>全程主体稳定</td></tr>
+          <tr><td><b>D08</b> 物理规律</td><td>明显违重力 / 碰撞 / 浮力</td><td>偶有轻微违和</td><td>符合物理规律</td></tr>
+          <tr><td><b>D09</b> 人体结构</td><td>骨骼 / 关节明显畸变</td><td>轻微不自然</td><td>人体结构合理</td></tr>
+        </tbody>
+      </table>
+
+      <h4 class="sub-head">最容易出错的地方：技术失真 vs 物理常识错误</h4>
+      <p class="sec-note">这是整套细则的核心难点。混淆两者会同时污染底层质量分与高层世界模型分，让一致性指标和最终报告一起失真。规范给出的判断句是：</p>
+
+      <div class="golden-rule">
+        <b>「假如现实中用摄像机拍一段真实视频，会出现这个现象吗？」</b>
+        <ul>
+          <li>不会，原因是<b>画面脏 / 抖 / 糊 / 闪 / 卡 / 色偏</b> → 技术失真，记 D01–D04</li>
+          <li>不会，原因是<b>物体行为违反物理或常识</b> → 物理常识错误，记 D08–D10</li>
+          <li>不会，原因是<b>和 prompt 不符 / 主体或背景变了</b> → 语义问题，记 D05–D07</li>
+        </ul>
+      </div>
+
+      <table class="tbl">
+        <thead><tr><th>现象</th><th>容易误判为</th><th>正确归类</th><th>理由</th></tr></thead>
+        <tbody>
+          <tr><td>人物边缘轻微闪烁</td><td>物理错误</td><td><b>技术失真 D03</b></td><td>画面在抖，物理上人还站在那里</td></tr>
+          <tr><td>手臂穿过自己身体</td><td>技术失真</td><td><b>物理错误 D09</b></td><td>骨骼结构不可能</td></tr>
+          <tr><td>背景建筑倒立悬浮</td><td>技术失真</td><td><b>物理错误 D08</b></td><td>违反重力</td></tr>
+          <tr><td>运动有点卡顿</td><td>物理错误</td><td><b>技术失真 D04</b></td><td>渲染不顺，物理上可解释</td></tr>
+          <tr><td>猫的颜色逐帧微变</td><td>物理错误</td><td><b>语义 D05</b></td><td>不是物理违例，是主体性漂移</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="intro-section">
+      <div class="sec-head">
+        <span class="sec-no">06</span>
+        <div>
+          <h3>评价执行与结构化报告</h3>
+          <p>从打分到出报告，中间有四道机制保证数据可信：门控、留痕、一致性校验、结构化导出。</p>
+        </div>
+      </div>
+
+      <div class="flow-steps">
+        <div class="flow-step">
+          <span class="flow-no">1</span>
+          <div><b>质量门控</b><p>提交低分（≤4）时必须做二元初判：这是技术失真、物理常识错误，还是语义错位。选"物理常识错误"却没写说明的记录标记 <code>is_valid=false</code>，不参与统计。</p></div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-no">2</span>
+          <div><b>结构化留痕</b><p>高层低分必须按固定格式记录，让报告能指出"哪里错了"而不只是"得了 4 分"。</p>
+            <pre class="code-block">D08 违反重力(悬浮不落) @ 00:02 ; 高
+D09 反关节(左臂穿胸)   @ 00:05 ; 中
+D10 因果错乱(先碎后落) @ 00:07 ; 高</pre>
+          </div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-no">3</span>
+          <div><b>一致性校验</b><p>同一视频至少两名标注员独立打分，系统计算 <b>ICC(2,1)</b> 与 <b>Krippendorff's α</b> 两个指标，低于阈值（ICC&lt;0.6 / α&lt;0.667）自动标红，触发标注对齐会。</p>
+            <p class="mini-note">这两个指标都曾在本项目中被写错过：ICC 漏了列效应项，α 用了非标准的自造公式。两者都已按标准定义重写，并用独立参考实现做过基准核对。</p>
+          </div>
+        </div>
+        <div class="flow-step">
+          <span class="flow-no">4</span>
+          <div><b>专家仲裁与导出</b><p>分差大于 3 分的争议样本自动送专家仲裁，仲裁分覆盖主观均值。最终导出 VBench 兼容 JSON，可直接接入外部对比流程。</p></div>
+        </div>
+      </div>
+
+      <h4 class="sub-head">报告长什么样</h4>
+      <p class="sec-note">数据看板提供四张图：全样本质量轮廓雷达、MOS 分布直方图、模型 Leaderboard、世界模型子榜（D08–D10）。雷达图上客观分与人工分是两条独立曲线——混在一条线上会让人误以为机器分和人的判断是一回事。</p>
+    </section>
+
+    <section class="intro-section intro-boundary">
+      <div class="sec-head">
+        <span class="sec-no">07</span>
+        <div>
+          <h3>已知边界</h3>
+          <p>这套系统当前做不到什么，以及为什么。</p>
+        </div>
+      </div>
+      <ul class="boundary-list">
+        <li><b>不做音频分析。</b>口型对齐、音画同步、配音质量全部不在覆盖范围内。</li>
+        <li><b>不做 OCR。</b>画面内文字渲染的正确性没有专项维度，只能由 D01 间接反映清晰度。</li>
+        <li><b>不做镜头结构分析。</b>没有镜头切点检测，多镜头题只能评"连不连贯"，评不了"切得对不对"。</li>
+        <li><b>本地信号指标是启发式的。</b>D03 / D04 的映射公式不是学术标准指标，它的价值在于确定性和可复现，不在于与人类感知的绝对对齐。</li>
+        <li><b>大模型打分不是 ground truth。</b>它是可复现的近似标注，人工 MOS 与专家仲裁才是校准基准。</li>
+        <li><b>还没有一键十维。</b>当前需要逐维度触发，任务队列与并发调度是下一步的事。</li>
+      </ul>
     </section>
   </main>
 

@@ -293,6 +293,7 @@ function showView(view) {
   $("viewBoard").hidden = true;
   $("viewDim").hidden = true;
   $("viewWork").hidden = true;
+  $("viewIntro").hidden = true;
   if (view === "home") $("viewHome").hidden = false;
   else if (view === "board") {
     $("viewBoard").hidden = false;
@@ -300,6 +301,8 @@ function showView(view) {
   } else if (view === "work") {
     $("viewWork").hidden = false;
     loadWorkbench();
+  } else if (view === "intro") {
+    $("viewIntro").hidden = false;
   }
   document.querySelectorAll(".nav-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === view));
