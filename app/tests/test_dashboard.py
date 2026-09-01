@@ -46,3 +46,25 @@ def test_dashboard_aggregates_scores(tmp_env):
     assert d["world_model"][0]["D08"] == 4.0
     assert d["summary"]["n_ratings"] == 4
     assert d["summary"]["overall_mean"] == 5.75     # all score values; MOS is separate
+
+
+def test_dashboard_expert_overrides_subjective_per_dimension(tmp_env):
+    conn = storage.get_conn(); cur = conn.cursor()
+    cur.execute("INSERT INTO videos (video_id, filename, model_tag) VALUES (?,?,?)",
+                ("v1", "clip.mp4", "Sora"))
+    conn.commit(); conn.close()
+
+    storage.insert_objective_score("v1", "D08",
+                                   {"value": 8.0, "confidence": 0.9, "note": "x"},
+                                   "lmm", "vision")
+    for rater, score in (("r1", 6.0), ("r2", 4.0)):
+        storage.save_subjective("v1", "user", rater, {"D01": 5, "D08": score},
+                                "physical", "", "", "")
+    storage.save_subjective("v1", "expert", "exp", {"D08": 2},
+                            "physical", "", "", "")
+
+    d = client().get("/api/dashboard").json()
+    v = d["videos"][0]
+    assert v["mean_scores"]["D01"] == 5.0
+    assert v["mean_scores"]["D08"] == 5.0
+    assert sum(h["count"] for h in d["mos_hist"]) == 2

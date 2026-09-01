@@ -126,9 +126,7 @@ async function uploadVideo(file) {
     model_tag: $("modelTag").value.trim(),
   });
   if (data.duplicate) {
-    const full = (await (await fetch("/api/videos")).json())
-      .find((v) => v.video_id === data.video_id);
-    setPendingVideo(full, `${full.model_tag || "未标模型"} · 已存在，复用入库记录`);
+    setPendingVideo(data, `${data.model_tag || "未标模型"} · 已存在，复用入库记录`);
   } else {
     setPendingVideo(data);
   }
@@ -528,6 +526,12 @@ function buildSliders() {
         <span class="wb-dim">${d.dim_id} ${d.name}</span>
         <input type="range" min="0" max="10" step="0.5" value="5" data-dim="${d.dim_id}" class="wb-range">
         <span class="wb-val" id="wbval_${d.dim_id}">5.0</span>
+        <select class="wb-gate" data-dim="${d.dim_id}" aria-label="${d.dim_id} 低分原因" disabled>
+          <option value="na">不适用</option>
+          <option value="technical">技术失真</option>
+          <option value="semantic">语义错位</option>
+          <option value="physical">物理/常识错误</option>
+        </select>
         <span class="wb-anchor">低:${d.anchor_low} → 高:${d.anchor_high}</span>
       </div>`;
     }
@@ -537,6 +541,12 @@ function buildSliders() {
   wrap.querySelectorAll(".wb-range").forEach((el) => {
     el.addEventListener("input", () => {
       $("wbval_" + el.dataset.dim).textContent = Number(el.value).toFixed(1);
+      const row = el.closest(".wb-row");
+      const gate = row.querySelector(".wb-gate");
+      const low = Number(el.value) <= 4;
+      row.classList.toggle("low", low);
+      gate.disabled = !low;
+      if (!low) gate.value = "na";
     });
   });
 }
@@ -548,12 +558,23 @@ async function submitWorkbench() {
   $("wbSliders").querySelectorAll(".wb-range").forEach((el) => {
     dims[el.dataset.dim] = parseFloat(el.value);
   });
-  const gate = (document.querySelector('input[name="wbGate"]:checked') || {}).value || "na";
+  const gates = {};
+  for (const el of $("wbSliders").querySelectorAll(".wb-range")) {
+    const gate = document.querySelector(`.wb-gate[data-dim="${el.dataset.dim}"]`).value;
+    gates[el.dataset.dim] = gate;
+    if (dims[el.dataset.dim] > 4) continue;
+    const dim = state.dims.find((d) => d.dim_id === el.dataset.dim);
+    const expected = dim.layer === "world_model" ? "physical" : dim.layer;
+    if (gate !== expected) {
+      showModal(`${el.dataset.dim} 是低分，请选择「${expected === "physical" ? "物理/常识错误" : expected === "technical" ? "技术失真" : "语义错位"}」`);
+      return;
+    }
+  }
   const payload = {
     video_id: videoId,
     role: $("wbRole").value,
     rater_id: ($("wbRater").value.trim() || (($("wbRole").value === "expert" ? "expert" : "user") + "_anon")),
-    dims, gate,
+    dims, gate: "na", gates,
     note: $("wbNote").value.trim(),
   };
   const btn = $("wbSubmit");

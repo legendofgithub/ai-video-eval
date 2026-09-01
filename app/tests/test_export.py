@@ -24,6 +24,16 @@ def test_latest_expert_arbitration_wins(tmp_env, real_video):
     assert rows[vid]["D01"]["value"] == 9
 
 
+def test_partial_expert_arbitration_overlays_only_rated_dimensions(tmp_env, real_video):
+    vid = storage.add_video(real_video)["video_id"]
+    storage.save_subjective(vid, "user", "r1", {"D01": 5, "D08": 4}, "physical", "", "", "")
+    storage.save_subjective(vid, "user", "r2", {"D01": 7, "D08": 6}, "physical", "", "", "")
+    storage.save_subjective(vid, "expert", "exp", {"D08": 2}, "physical", "", "", "")
+    rows = {video_id: sc for video_id, _tag, sc in _human_score_rows()}
+    assert rows[vid]["D01"] == 6.0
+    assert rows[vid]["D08"]["value"] == 2
+
+
 def test_export_vbench_writes_leaderboard(tmp_env, monkeypatch):
     monkeypatch.setattr(export, "BASE", str(tmp_env))
     storage.save_subjective("v", "user", "r1", {"D01": 7}, "na", "", "", "")

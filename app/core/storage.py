@@ -110,12 +110,19 @@ def add_video(src, prompt_text="", model_tag="", max_mb=MAX_UPLOAD_MB):
     # stray file when the dedup path would otherwise delete it).
     h = md5_file(src)
     conn = get_conn(); c = conn.cursor()
-    c.execute("SELECT video_id FROM videos WHERE file_hash=?", (h,))
+    c.execute("""SELECT video_id, filename, duration_sec, fps, resolution,
+                        file_size_mb, prompt_text, model_tag
+                 FROM videos WHERE file_hash=?""", (h,))
     dup = c.fetchone()
     if dup:
         conn.close()
         log.info("upload duplicate resolved: %s -> %s", src, dup[0])
-        return {"video_id": dup[0], "duplicate": True}
+        return {
+            "video_id": dup[0], "duplicate": True, "filename": dup[1],
+            "duration_sec": dup[2], "fps": dup[3], "resolution": dup[4],
+            "file_size_mb": dup[5], "prompt_text": dup[6],
+            "model_tag": dup[7],
+        }
 
     vid = uuid.uuid4().hex[:8]
     dst = os.path.join(VIDEOS_DIR, f"{vid}{ext}")
@@ -190,8 +197,15 @@ def insert_objective_score(video_id, dim_id, res, rater, model,
 
 
 def save_subjective(video_id, role, rater_id, dims_vals, gate, note_text,
-                    ab_choice, ab_vs):
-    """Save a human/expert rating. gate: technical/physical/semantic/na."""
+                    ab_choice, ab_vs, dim_gates=None):
+    """Save a human/expert rating with per-dimension low-score gates.
+
+    ``gate`` remains the compatibility fallback. Low scores must select the
+    gate matching their dimension layer; scores are grouped into valid and
+    invalid rows so one bad low-score classification never invalidates other
+    dimensions in reliability statistics.
+    """
+    dim_gates = dim_gates or {}
     if gate not in {"technical", "physical", "semantic", "na"}:
         raise ValueError("未知低分门控类型")
     if not str(rater_id).strip():
@@ -201,27 +215,53 @@ def save_subjective(video_id, role, rater_id, dims_vals, gate, note_text,
     unknown = set(dims_vals) - set(DIM_IDS)
     if unknown:
         raise ValueError(f"未知评测维度: {', '.join(sorted(unknown))}")
+    unknown_gates = set(dim_gates) - set(DIM_IDS)
+    if unknown_gates:
+        raise ValueError(f"未知低分门控维度: {', '.join(sorted(unknown_gates))}")
+    if any(g not in {"technical", "physical", "semantic", "na"}
+           for g in dim_gates.values()):
+        raise ValueError("未知低分门控类型")
     scores = {}
+    valid_by_dim = {}
+    expected_gate = {
+        "technical": "technical",
+        "semantic": "semantic",
+        "world_model": "physical",
+    }
     for dim_id, v in dims_vals.items():
         if v is not None:
             value = float(v)
             if not math.isfinite(value) or not 0 <= value <= 10:
                 raise ValueError("评分必须在 0-10 之间")
-            scores[dim_id] = {"value": value, "confidence": None, "note": ""}
-    is_valid = 1
-    for dim_id in ("D08", "D09", "D10"):
-        if dim_id in scores and scores[dim_id]["value"] <= 4 and gate != "physical":
-            is_valid = 0
-    for dim_id in ("D01", "D02", "D03", "D04"):
-        if dim_id in scores and scores[dim_id]["value"] <= 4 and gate == "physical":
-            is_valid = 0
+            scores[dim_id] = {
+                "value": value,
+                "confidence": None,
+                "note": str(note_text or "") if value <= 4 else "",
+            }
+            layer = next(d["layer"] for d in DIMENSIONS if d["dim_id"] == dim_id)
+            selected_gate = dim_gates.get(dim_id, gate)
+            valid_by_dim[dim_id] = (
+                value > 4 or selected_gate == expected_gate[layer]
+            )
+    if not scores:
+        raise ValueError("至少提交一个有效评分")
     method = "expert_arbitration" if role == "expert" else "subjective"
     conn = get_conn(); c = conn.cursor()
-    c.execute("INSERT INTO scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-              (uuid.uuid4().hex[:10], "task_manual", video_id, DEFAULT_SPEC_ID,
-               rater_id, role, method, None, json.dumps(scores, ensure_ascii=False),
-               json.dumps({"vs_video_id": ab_vs, "choice": ab_choice,
-                           "reason": note_text}) if ab_choice else None,
-               is_valid, datetime.datetime.now().isoformat()))
+    first_row = True
+    for is_valid in (1, 0):
+        group = {dim: score for dim, score in scores.items()
+                 if valid_by_dim[dim] == bool(is_valid)}
+        if not group:
+            continue
+        c.execute("INSERT INTO scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (uuid.uuid4().hex[:10], "task_manual", video_id, DEFAULT_SPEC_ID,
+                   rater_id, role, method, None,
+                   json.dumps(group, ensure_ascii=False),
+                   json.dumps({"vs_video_id": ab_vs, "choice": ab_choice,
+                               "reason": note_text})
+                   if first_row and ab_choice else None,
+                   is_valid, datetime.datetime.now().isoformat()))
+        first_row = False
     conn.commit(); conn.close()
-    return f"已保存({method}, is_valid={is_valid})"
+    valid_count = sum(valid_by_dim.values())
+    return f"已保存({method}, 有效维度={valid_count}/{len(scores)})"

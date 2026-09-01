@@ -189,13 +189,7 @@
       <div class="card" style="margin-top:18px">
         <div class="card-title"><h2>② 10 维主观评分（0–10）</h2></div>
         <div id="wbSliders"></div>
-        <div class="gate-row">
-          <span class="gate-label">低分门控（判断失真的性质）：</span>
-          <label><input type="radio" name="wbGate" value="na" checked> 不适用</label>
-          <label><input type="radio" name="wbGate" value="technical"> 技术失真</label>
-          <label><input type="radio" name="wbGate" value="physical"> 物理/常识错误</label>
-          <label><input type="radio" name="wbGate" value="semantic"> 语义错位</label>
-        </div>
+        <p class="gate-row">评分低于或等于 4 的维度必须选择对应的低分原因；不同维度可独立选择。</p>
         <label class="field" style="margin-top:10px">备注（违规类型@时间戳；仲裁理由）
           <textarea id="wbNote" rows="2" placeholder="如 D08 番茄汁悬浮@00:03；仲裁：覆盖主观低分"></textarea>
         </label>

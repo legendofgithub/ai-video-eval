@@ -217,6 +217,7 @@ class SubjectiveIn(BaseModel):
     rater_id: str = "anon"
     dims: dict = {}             # {dim_id: 0-10}
     gate: str = "na"            # technical | physical | semantic | na
+    gates: dict = {}            # optional per-dimension low-score gates
     note: str = ""
     ab_choice: Optional[str] = None
     ab_vs: Optional[str] = None
@@ -235,7 +236,7 @@ def post_subjective(p: SubjectiveIn):
         raise HTTPException(status_code=404, detail="视频不存在")
     try:
         detail = save_subjective(p.video_id, p.role, p.rater_id, p.dims,
-                                 p.gate, p.note, p.ab_choice, p.ab_vs)
+                                 p.gate, p.note, p.ab_choice, p.ab_vs, p.gates)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "detail": detail}

@@ -20,23 +20,25 @@ def _human_score_rows():
     by_vid = {}
     for vid, tag, method, sc_json, is_valid in rows:
         sc = json.loads(sc_json)
-        d = by_vid.setdefault(vid, {"model_tag": tag, "expert": None, "sub": []})
+        d = by_vid.setdefault(vid, {"model_tag": tag, "expert": {}, "sub": []})
         if method == "expert_arbitration":
-            d["expert"] = sc
+            for dim, raw in sc.items():
+                if _dim_value({dim: raw}, dim) is not None:
+                    d["expert"][dim] = raw
         elif method == "subjective" and is_valid == 1:
             d["sub"].append(sc)
     out = []
     for vid, d in by_vid.items():
-        if d["expert"] is not None:
-            out.append((vid, d["model_tag"], d["expert"]))
-        elif d["sub"]:
-            merged = {}
-            for sc in d["sub"]:
-                for dim, v in sc.items():
-                    if isinstance(v, dict) and v.get("value") is not None:
-                        merged.setdefault(dim, []).append(v["value"])
-            merged = {dim: round(float(np.mean(vals)), 2) for dim, vals in merged.items()}
-            out.append((vid, d["model_tag"], merged))
+        merged = {}
+        for sc in d["sub"]:
+            for dim, v in sc.items():
+                if isinstance(v, dict) and v.get("value") is not None:
+                    merged.setdefault(dim, []).append(v["value"])
+        effective = {dim: round(float(np.mean(vals)), 2)
+                     for dim, vals in merged.items()}
+        effective.update(d["expert"])
+        if effective:
+            out.append((vid, d["model_tag"], effective))
     return out
 
 
@@ -86,6 +88,17 @@ def _layer_mean(scores: dict, keys) -> float | None:
     return round(float(np.mean(lst)), 2) if lst else None
 
 
+def _append_score(target: dict, dim: str, val) -> None:
+    if val is None:
+        return
+    try:
+        fv = float(val)
+    except (TypeError, ValueError):
+        return
+    if 0 <= fv <= 10:
+        target.setdefault(dim, []).append(fv)
+
+
 LAYER_GROUPS = {
     "technical": ("D01", "D02", "D03", "D04"),
     "semantic": ("D05", "D06", "D07"),
@@ -98,32 +111,44 @@ def dashboard_data() -> dict:
     per-video / per-model leaderboards, a MOS histogram and a world-model
     sub-board. Zero external dependencies; pure SQLite + numpy."""
     conn = get_conn(); c = conn.cursor()
-    c.execute("""SELECT s.video_id, v.filename, v.model_tag, s.method, s.scores
-                 FROM scores s JOIN videos v ON v.video_id = s.video_id""")
+    c.execute("""SELECT s.video_id, v.filename, v.model_tag, s.method, s.scores,
+                        s.is_valid
+                 FROM scores s JOIN videos v ON v.video_id = s.video_id
+                 ORDER BY s.created_at, s.score_id""")
     rows = c.fetchall(); conn.close()
 
     by_vid: dict = {}
     mos_scores: list = []
-    for vid, fn, tag, method, sc_json in rows:
+    for vid, fn, tag, method, sc_json, is_valid in rows:
         sc = json.loads(sc_json)
         d = by_vid.setdefault(vid, {"filename": fn, "model_tag": tag or "",
-                                    "vals": {}})
-        for dim, raw in sc.items():
-            val = _dim_value(sc, dim)
-            if val is None:
-                continue
-            try:
-                fv = float(val)
-            except (TypeError, ValueError):
-                continue
-            if 0 <= fv <= 10:
-                d["vals"].setdefault(dim, []).append(fv)
-                if method in ("subjective", "expert_arbitration"):
-                    mos_scores.append(fv)
+                                    "vals": {}, "sub": {}, "expert": {},
+                                    "human": {}})
+        if method == "objective":
+            for dim in sc:
+                val = _dim_value(sc, dim)
+                _append_score(d["vals"], dim, val)
+        elif method == "subjective" and is_valid == 1:
+            for dim in sc:
+                _append_score(d["sub"], dim, _dim_value(sc, dim))
+        elif method == "expert_arbitration":
+            for dim, raw in sc.items():
+                val = _dim_value({dim: raw}, dim)
+                if val is not None:
+                    d["expert"][dim] = val
 
     videos = []
     all_scores: list = []
     for vid, d in by_vid.items():
+        for dim, vals in d["sub"].items():
+            if vals:
+                d["human"][dim] = round(float(np.mean(vals)), 2)
+        for dim, val in d["expert"].items():
+            if val is not None:
+                d["human"][dim] = val
+        for dim, val in d["human"].items():
+            d["vals"].setdefault(dim, []).append(val)
+            mos_scores.append(val)
         mean_scores = {}
         for dim in DIM_IDS:
             if dim in d["vals"]:
