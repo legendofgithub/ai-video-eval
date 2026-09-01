@@ -120,17 +120,21 @@ async function restoreScores(videoId) {
 }
 
 async function uploadVideo(file) {
-  const data = await postForm("/api/upload", {
-    file,
-    prompt_text: $("promptText").value.trim(),
-    model_tag: $("modelTag").value.trim(),
-  });
-  if (data.duplicate) {
-    setPendingVideo(data, `${data.model_tag || "未标模型"} · 已存在，复用入库记录`);
-  } else {
-    setPendingVideo(data);
+  try {
+    const data = await postForm("/api/upload", {
+      file,
+      prompt_text: $("promptText").value.trim(),
+      model_tag: $("modelTag").value.trim(),
+    });
+    if (data.duplicate) {
+      setPendingVideo(data, `${data.model_tag || "未标模型"} · 已存在，复用入库记录`);
+    } else {
+      setPendingVideo(data);
+    }
+    await loadRecent();
+  } catch (e) {
+    showModal(`上传失败：${e.message}`);
   }
-  await loadRecent();
 }
 
 async function loadRecent() {
@@ -348,15 +352,25 @@ function renderRadar(videos) {
     wrap.innerHTML = '<p class="hint">暂无评测数据。</p>';
     return;
   }
-  const agg = {};
-  for (const v of videos) {
-    for (const d of state.dims) {
-      const val = v.mean_scores[d.dim_id];
-      if (val != null) (agg[d.dim_id] = agg[d.dim_id] || []).push(val);
+  const series = [
+    { key: "objective_mean_scores", label: "客观分", color: "#2563eb" },
+    { key: "human_mean_scores", label: "人工/专家校准", color: "#f59e0b" },
+  ].map((item) => {
+    const agg = {};
+    for (const v of videos) {
+      for (const d of state.dims) {
+        const val = v[item.key]?.[d.dim_id];
+        if (val != null) (agg[d.dim_id] = agg[d.dim_id] || []).push(val);
+      }
     }
-  }
-  const vals = state.dims.map((d) =>
-    agg[d.dim_id] ? +(agg[d.dim_id].reduce((a, b) => a + b, 0) / agg[d.dim_id].length).toFixed(2) : 0);
+    return {
+      ...item,
+      values: state.dims.map((d) => agg[d.dim_id]
+        ? +(agg[d.dim_id].reduce((a, b) => a + b, 0) / agg[d.dim_id].length).toFixed(2)
+        : 0),
+      available: Object.keys(agg).length > 0,
+    };
+  }).filter((item) => item.available);
   const n = state.dims.length;
   const size = 320, cx = size / 2, cy = size / 2, R = size / 2 - 46;
   const pt = (i, r) => {
@@ -374,13 +388,21 @@ function renderRadar(videos) {
     const [lx, ly] = pt(i, R + 22);
     labels += `<text x="${lx}" y="${ly}" font-size="11" fill="#5b7099" text-anchor="middle" dominant-baseline="middle">${d.dim_id}</text>`;
   });
-  const poly = state.dims.map((d, i) => pt(i, R * (vals[i] / 10)).join(",")).join(" ");
+  const curves = series.map((item) => {
+    const poly = item.values.map((value, i) => pt(i, R * (value / 10)).join(",")).join(" ");
+    const points = item.values.map((value, i) => {
+      const [x, y] = pt(i, R * (value / 10));
+      return `<circle cx="${x}" cy="${y}" r="3" fill="${item.color}"/>`;
+    }).join("");
+    return `<polygon points="${poly}" fill="${item.color}22" stroke="${item.color}" stroke-width="2"/>${points}`;
+  }).join("");
+  const legend = series.map((item) =>
+    `<span class="lg"><i style="background:${item.color}"></i>${item.label}</span>`).join("");
   wrap.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:360px;display:block;margin:0 auto">
-    ${grid}${axes}
-    <polygon points="${poly}" fill="rgba(37,99,235,0.22)" stroke="#2563eb" stroke-width="2"/>
-    ${state.dims.map((d, i) => { const [x, y] = pt(i, R * (vals[i] / 10)); return `<circle cx="${x}" cy="${y}" r="3" fill="#2563eb"/>`; }).join("")}
+    ${grid}${axes}${curves}
     ${labels}
   </svg>
+  <div class="legend" style="justify-content:center">${legend}</div>
   <p class="hint" style="text-align:center">全样本 ${n} 维均值轮廓</p>`;
 }
 
@@ -628,8 +650,11 @@ function init() {
   $("lmmModel").value = localStorage.getItem("ve_model") || "";
   $("lmmKey").value = sessionStorage.getItem("ve_key") || "";
 
-  $("videoInput").addEventListener("change", (e) => {
-    if (e.target.files[0]) uploadVideo(e.target.files[0]);
+  $("videoInput").addEventListener("change", async (e) => {
+    const input = e.currentTarget;
+    const file = input.files[0];
+    if (file) await uploadVideo(file);
+    input.value = "";
   });
   const dz = $("dropZone");
   ["dragover", "dragenter"].forEach((ev) => dz.addEventListener(ev, (e) => {
@@ -659,7 +684,7 @@ function init() {
   document.querySelectorAll(".nav-tab").forEach((b) =>
     b.addEventListener("click", () => showView(b.dataset.view)));
 
-  loadDims().then(loadRecent);
+  loadDims().then(loadRecent).catch((e) => showModal(`初始化失败：${e.message}`));
 }
 
 init();

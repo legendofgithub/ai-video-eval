@@ -5,7 +5,13 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _app_base():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+_BASE = _app_base()
 _LOG_PATH = os.path.join(_BASE, "data", "app.log")
 
 

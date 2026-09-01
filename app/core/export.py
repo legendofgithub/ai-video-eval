@@ -21,7 +21,7 @@ def _human_score_rows():
     for vid, tag, method, sc_json, is_valid in rows:
         sc = json.loads(sc_json)
         d = by_vid.setdefault(vid, {"model_tag": tag, "expert": {}, "sub": []})
-        if method == "expert_arbitration":
+        if method == "expert_arbitration" and is_valid == 1:
             for dim, raw in sc.items():
                 if _dim_value({dim: raw}, dim) is not None:
                     d["expert"][dim] = raw
@@ -131,7 +131,7 @@ def dashboard_data() -> dict:
         elif method == "subjective" and is_valid == 1:
             for dim in sc:
                 _append_score(d["sub"], dim, _dim_value(sc, dim))
-        elif method == "expert_arbitration":
+        elif method == "expert_arbitration" and is_valid == 1:
             for dim, raw in sc.items():
                 val = _dim_value({dim: raw}, dim)
                 if val is not None:
@@ -146,6 +146,14 @@ def dashboard_data() -> dict:
         for dim, val in d["expert"].items():
             if val is not None:
                 d["human"][dim] = val
+        objective_mean_scores = {
+            dim: round(float(np.mean(vals)), 2)
+            for dim, vals in d["vals"].items() if vals
+        }
+        human_mean_scores = {
+            dim: round(float(np.mean(vals)), 2)
+            for dim, vals in d["human"].items() if vals
+        }
         for dim, val in d["human"].items():
             d["vals"].setdefault(dim, []).append(val)
             mos_scores.append(val)
@@ -161,6 +169,8 @@ def dashboard_data() -> dict:
             "filename": d["filename"],
             "model_tag": d["model_tag"] or "未标注",
             "mean_scores": mean_scores,
+            "objective_mean_scores": objective_mean_scores,
+            "human_mean_scores": human_mean_scores,
             "layer_means": layer_means,
             "overall": overall,
             "n_ratings": sum(len(x) for x in d["vals"].values()),

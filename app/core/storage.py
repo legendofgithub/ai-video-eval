@@ -80,13 +80,23 @@ def save_config(cfg):
 
 
 def get_video_path(video_id):
+    def safe_path(filename):
+        root = os.path.abspath(VIDEOS_DIR)
+        path = os.path.abspath(os.path.join(root, filename))
+        relative = os.path.relpath(path, root)
+        if relative == os.curdir or relative.startswith(f"..{os.sep}") or os.path.isabs(relative):
+            return None
+        return path if os.path.isfile(path) else None
+
     for ext in (".mp4", ".webm", ".mov"):
-        p = os.path.join(VIDEOS_DIR, f"{video_id}{ext}")
-        if os.path.exists(p):
+        p = safe_path(f"{video_id}{ext}")
+        if p:
             return p
     for f in os.listdir(VIDEOS_DIR):
         if f.startswith(video_id):
-            return os.path.join(VIDEOS_DIR, f)
+            p = safe_path(f)
+            if p:
+                return p
     return None
 
 

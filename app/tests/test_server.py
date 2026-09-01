@@ -38,6 +38,14 @@ def test_upload_rejects_oversized_stream(tmp_path, monkeypatch):
     assert r.status_code == 413
 
 
+def test_video_file_rejects_path_traversal(tmp_env):
+    secret = tmp_env / "secret.mp4"
+    secret.write_bytes(b"SECRET")
+    c = client()
+    assert c.get(r"/api/video/..\secret/file").status_code == 404
+    assert c.get("/api/video/..%2Fsecret/file").status_code in (404, 405)
+
+
 def test_scores_returns_latest_valid_dimension(tmp_env):
     c = client()
     storage.insert_objective_score("v", "D03", {

@@ -41,6 +41,8 @@ def test_dashboard_aggregates_scores(tmp_env):
     assert v["model_tag"] == "Sora"
     assert v["mean_scores"]["D01"] == 7.0          # (8+6)/2
     assert v["mean_scores"]["D08"] == 4.0
+    assert v["objective_mean_scores"]["D01"] == 7.0
+    assert v["human_mean_scores"]["D02"] == 5.0
     assert d["models"][0]["model_tag"] == "Sora"
     assert sum(h["count"] for h in d["mos_hist"]) == 1
     assert d["world_model"][0]["D08"] == 4.0
@@ -68,3 +70,17 @@ def test_dashboard_expert_overrides_subjective_per_dimension(tmp_env):
     assert v["mean_scores"]["D01"] == 5.0
     assert v["mean_scores"]["D08"] == 5.0
     assert sum(h["count"] for h in d["mos_hist"]) == 2
+
+
+def test_dashboard_ignores_invalid_expert_arbitration(tmp_env):
+    conn = storage.get_conn(); cur = conn.cursor()
+    cur.execute("INSERT INTO videos (video_id, filename, model_tag) VALUES (?,?,?)",
+                ("v1", "clip.mp4", "Sora"))
+    conn.commit(); conn.close()
+
+    storage.save_subjective("v1", "user", "r1", {"D08": 6}, "physical", "", "", "")
+    storage.save_subjective("v1", "expert", "exp", {"D08": 2},
+                            "technical", "", "", "")
+
+    v = client().get("/api/dashboard").json()["videos"][0]
+    assert v["mean_scores"]["D08"] == 6.0
