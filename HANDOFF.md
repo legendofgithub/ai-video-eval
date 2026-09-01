@@ -1,9 +1,9 @@
 # AI 视频质量评测项目交接记录
 
-> 更新时间：2026-08-31 16:32 +08:00
-> 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试、产品介绍页也已进入网页端。本轮增量审计修复统计口径、测试隔离、端口占用和真实 UI 状态问题，并已全部提交。
-> 当前 Git：`master` HEAD=`3ff9be7`；工作区干净（`nothing to commit, working tree clean`），无未提交改动、无回滚。
-> 当前运行状态：本轮启动的 `8765` 已停止；`8876` 有本轮开始前已存在的 Python 进程 `34124` 监听，按“只停止自己启动的服务”未处理。数据库回到 `videos=0, scores=0`，本轮视频、评分、导出与临时脚本已清理。
+> 更新时间：2026-09-01 11:05 +08:00
+> 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试、产品介绍页也已进入网页端。2026-09-01 增量审计修复逐维低分门控、专家仲裁/看板口径、重复上传元数据与低分备注落库，已提交为 `1b796af`。
+> 当前 Git：`master`；本轮代码修复提交为 `1b796af`，本交接文档随后单独提交；无回滚。
+> 当前运行状态：本轮自启的 `8902` 已停止；数据库回到 `videos=0, scores=0`。本轮视频、评分、临时脚本与重复上传副本已清理；既有 `vbench_export.json` 内容在导出验证后已按字节恢复。`8876` 为历史外部状态，本轮未处理。
 
 ## 1. 环境与入口
 
@@ -53,6 +53,14 @@
    - 全局 `[hidden] { display:none !important; }` 修复 `.pending-video` 的 `display:flex` 覆盖 `hidden` 导致的空占位问题。
    - 可靠性表文案改为“仅统计有效人工标注评分”，与实际查询口径一致。
 
+### 2026-09-01 增量审计修复（已提交 `1b796af`）
+
+- **P3 逐维低分门控**：主观评分 API 兼容旧 `gate`，新增 `gates={dim_id: reason}`；低分原因按维度层校验，并分 valid/invalid 两组落库，避免一个错分低分维度把整条提交的其他维度全部排除出 ICC/Krippendorff。
+- **工作台真实交互**：每个维度滑块旁新增低分原因选择；低于等于 4 分时启用并强制选择匹配原因，非低分自动回“不适用”，移动端布局同步调整。
+- **专家仲裁与看板口径**：VBench 导出和 `/api/dashboard` 均改为“专家按维度覆盖有效主观均值”；部分仲裁不再抹掉未仲裁维度，也不再让专家分作为普通评分稀释均值。
+- **追溯与去重**：低分备注写入对应 `scores[dim].note`；重复上传响应直接返回完整既有元数据，前端不再依赖最近 20 条列表反查。
+- 新增回归覆盖逐维门控隔离、非法门控、低分备注、部分专家仲裁、看板覆盖口径与重复上传元数据。
+
 ## 3. 验证证据
 
 ### 三轮审计
@@ -75,6 +83,14 @@ cd "F:\AI\codex project\AI视频评测\app"
 - Mypy：`Success: no issues found in 10 source files`
 - `git diff --check`：通过
 
+2026-09-01 复核：
+
+- Pytest：`36 passed, 2 skipped`（2 个真实 DeepSeek 用例因未设置 `DEEPSEEK_API_KEY` 跳过）
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 10 source files`
+- `node --check web/app.js`：通过
+- `git diff --check`：通过
+
 ### 真实 Edge 点击流
 
 - 桌面 `1440x900`：首页 10 张维度卡、无待测视频时待测占位隐藏、无横向溢出。
@@ -87,6 +103,16 @@ cd "F:\AI\codex project\AI视频评测\app"
 - 移动端 `390x844`：无横向溢出。
 - 截图证据：`app/_shots/audit_desktop_home.png`、`audit_desktop_d03.png`、`audit_desktop_workbench.png`、`audit_desktop_board.png`、`audit_mobile_home.png`（目录 gitignored）。
 - 端口占用：在 `8765` 已监听时再次启动，日志输出占用提示并退出，退出码 `2`。
+
+2026-09-01 增量真实验证（自启 `127.0.0.1:8902`，已停止）：
+
+- 可见 Edge `1440x900`：首页 10 张维度卡、无横向溢出；上传临时 mp4 后重复上传显示“已存在”，模型标识保持 `audit_p3_edge`。
+- D03 本地评测真实点击成功并显示分数。
+- 工作台将 D05=3、D08=3：先验证未选原因被弹窗阻断，再分别选择“语义错位”“物理/常识错误”和备注“悬浮 @ 00:03”，保存返回 `有效维度=10/10`。
+- 数据看板雷达、MOS 直方图、模型榜、明细和世界模型子榜渲染，无横向溢出。
+- VBench 下载包含 `audit_p3_edge`；下载验证后既有 `vbench_export.json` 内容恢复为原 530 字节。
+- 通过 UI 删除本轮视频后，数据库回到 `videos=0, scores=0`；移动端 `390x844` 无横向溢出。
+- 本轮截图：`app/_shots/audit_p3_desktop_home.png`、`audit_p3_duplicate.png`、`audit_p3_d03.png`、`audit_p3_workbench.png`、`audit_p3_board.png`、`audit_p3_mobile_home.png`（目录 gitignored）。
 
 ### 打包历史证据
 
