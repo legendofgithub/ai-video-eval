@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """Shared fixtures: fully isolated storage dirs + a real test video."""
+import logging
 import os
 
 import pytest
 
 from core import storage
 from core import export
+from core import logger
 
 SRC_VIDEO = r"F:\AI\codex project\AI视频评测\测试用例\华清普智孵化器广告.mp4"
 
@@ -23,8 +25,22 @@ def _isolated_runtime_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "FRAMES_DIR", str(frames))
     monkeypatch.setattr(storage, "CONFIG_PATH", str(tmp_path / "config.json"))
     monkeypatch.setattr(export, "BASE", str(tmp_path))
+    monkeypatch.setattr(logger, "_LOG_PATH", str(data / "app.log"))
+    names = [name for name in logging.Logger.manager.loggerDict
+             if name == "videoeval" or name.startswith("videoeval.")]
+    saved_handlers = [(name, list(logging.getLogger(name).handlers)) for name in names]
+    for _name, handlers in saved_handlers:
+        logging.getLogger(_name).handlers = []
     storage.init_db()
-    yield
+    try:
+        yield
+    finally:
+        for name, _handlers in saved_handlers:
+            current = logging.getLogger(name)
+            for handler in current.handlers:
+                handler.close()
+            current.handlers = []
+            current.handlers.extend(_handlers)
 
 
 @pytest.fixture()
