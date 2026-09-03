@@ -1,9 +1,9 @@
 # AI 视频质量评测项目交接记录
 
-> 更新时间：2026-09-01 16:20 +08:00
-> 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试、产品介绍页也已进入网页端。2026-09-01 下午增量审计修复路径安全、无效专家仲裁、windowed 日志、上传错误反馈、双曲线雷达与 pytest 日志隔离，代码提交为 `5242693`、`299ac71`。
-> 当前 Git：`master`；本轮代码提交为 `5242693`、`299ac71`，本交接文档随后单独提交；无回滚。
-> 当前运行状态：本轮自启的 `8903` 已停止；数据库回到 `videos=0, scores=0`。本轮视频、评分、临时脚本、临时备份与重复上传副本已清理；`vbench_export.json` 与 `data/app.log` 均按哈希恢复。`8765/8876` 为外部进程，本轮未擅停。
+> 更新时间：2026-09-03 12:06 +08:00
+> 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试、产品介绍页已进入网页端。2026-09-01 下午增量审计修复路径安全、无效专家仲裁、windowed 日志、上传错误反馈、双曲线雷达与 pytest 日志隔离，提交为 `5242693`、`299ac71`。2026-09-03 真实 DeepSeek 视觉探测与网页端 D01 评测已验证可行。
+> 当前 Git：`master`；最近代码提交为 `5242693`、`299ac71`，本轮仅追加交接文档提交。`app/_audit_0902.py` 是本轮开始前已有未跟踪脚本，未改动。
+> 当前运行状态：本轮自启的 `8905` 已停止；临时视频、评分与脚本已清理。共享库保留本轮开始前已有的 `a5069653 / audit_0902`（1 视频、1 分数），本轮新增记录已删除。`8765/8876/8904` 为外部进程，本轮未擅停。
 
 ## 1. 环境与入口
 
@@ -70,6 +70,13 @@
 - **雷达图口径**：`/api/dashboard` 分别返回客观分均值与人工/专家校准均值；前端雷达真实绘制两条曲线和图例，不再把两类分数合成一条曲线。
 - **pytest 日志隔离**：autouse fixture 会替换并关闭 `videoeval*` logger 句柄，把日志指向临时目录；完整 pytest 前后真实 `data/app.log` SHA256 保持不变。
 
+### 2026-09-03 真实 DeepSeek 消耗受控验证
+
+- **零/近零消耗预检**：`/user/balance` 可用，期初余额 `44.50 CNY`；`/models` 返回 `deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-v4-flash-vision-exp`。
+- **核心链路精确 usage**：64x64 视觉探测成功识别 `circle/red`，usage `283 tokens`；真实广告 D01 四帧评分返回 `8.0/10`、confidence `0.9`，usage `1,942 tokens`。两次合计 `2,225 tokens`。
+- **网页端产品链路**：可见 Edge 填写 Base URL / 模型 / API Key，上传 320x180 临时视频，点击 D01 后自动探测并真实评测，返回 `10.0/10`、confidence `0.98`；UI 删除本轮视频成功。此段 2 次请求（探测 + 8 帧评分），产品响应不透出 usage，仅用余额监控，未见明显扣减。
+- **消耗结论**：全程共 4 次模型请求；最终余额 `44.49 CNY`，观察到的余额降幅 `0.01 CNY`。按官方价格页 `deepseek-v4-flash-vision-exp` 1M cache-miss input / output 计价，已精确测得的 `2,225 tokens` 理论费用低于余额显示精度，扣减量正常。API Key 未写入 config、代码、交接或 Git；测试浏览器已关闭。
+
 ## 3. 验证证据
 
 ### 三轮审计
@@ -109,6 +116,12 @@ cd "F:\AI\codex project\AI视频评测\app"
 - `git diff --check`：通过
 - 日志隔离断言：pytest 前后 `data/app.log` SHA256 相同
 
+2026-09-03 复核：
+
+- Pytest（未注入 Key，真实 API 用例按设计跳过）：`41 passed, 2 skipped`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 10 source files`
+
 ### 真实 Edge 点击流
 
 - 桌面 `1440x900`：首页 10 张维度卡、无待测视频时待测占位隐藏、无横向溢出。
@@ -141,6 +154,12 @@ cd "F:\AI\codex project\AI视频评测\app"
 - 删除真实视频时首次遇到 Windows 文件锁，接口返回 409 且数据库记录保留；稍后重试真实 UI 删除返回 200，最终 `/api/videos=[]`、`videos=0, scores=0`。
 - 本轮截图：`app/_shots/audit_fix_desktop_home.png`、`audit_fix_duplicate.png`、`audit_fix_d03.png`、`audit_fix_workbench.png`、`audit_fix_board.png`、`audit_fix_mobile_home.png`、`audit_radar_two_curves.png`（目录 gitignored）。
 
+2026-09-03 DeepSeek 真实验证（自启 `127.0.0.1:8905`，已停止）：
+
+- 模型列表与余额接口可用；`deepseek-v4-flash-vision-exp` 具备视觉能力。
+- 核心链路 D01 四帧评分成功；网页端真实表单/按钮链路成功，截图 `app/_shots/deepseek_ui_d01.png`。
+- 唯一前端 Console 错误为既有 favicon 404，不影响评测链路。
+
 ### 打包历史证据
 
 - PyInstaller `--onefile --windowed` 曾生成 `124,479,275` 字节 exe。
@@ -149,25 +168,25 @@ cd "F:\AI\codex project\AI视频评测\app"
 
 ## 4. 未完成
 
-1. 真实 DeepSeek 视觉链路仍未执行：缺少用户持有的 `DEEPSEEK_API_KEY`，2 个真实 API 测试按设计跳过。
+1. ~~真实 DeepSeek 视觉链路仍未执行~~ 已解决：2026-09-03 核心链路和网页端 D01 均通过；测试 Key 未持久化。
 2. 网页端还没有“一键 10 维评测”和任务队列，多维度仍需逐卡执行。
 3. ~~2026-09-01 下午改动未提交~~ 已解决：代码提交为 `5242693`、`299ac71`。
 4. 可靠性统计当前只统计人工标注员，专家仲裁作为导出覆盖值，不参与 ICC/Krippendorff；若产品希望专家也参与一致性，需要先定义口径。
 5. `app/data` 中存在历史孤儿媒体/日志文件；本轮只删除本轮生成和本轮测试对应数据，未清理可能属于用户的历史运行数据。
+6. 产品接口目前不透出模型 `usage`，本轮只能通过外层 wrapper 与余额接口监控；若进入批量十维测试，应先在服务端记录并在 UI 展示每次/累计 token。
 
 ## 5. 阻塞与外部状态
 
-- `DEEPSEEK_API_KEY` 是真实视觉链路唯一产品级阻塞。
 - `8765` 被进程 `20888`、`8876` 被进程 `34124`（均为 `videoeval` Python 环境 `server.py`）占用；它们不是本轮启动，未按指令擅停。
+- `8904` 被进程 `17316`（`videoeval` Python 环境 `server.py`）占用，伴随未跟踪脚本 `app/_audit_0902.py`，判断为另一轮外部测试状态；本轮未修改或停止。
 - 本地视觉复核 `glance` 缺 `VISION_API_KEY`；本轮以真实浏览器 DOM 断言、截图和溢出计算替代。
 - PowerShell `Remove-Item` 会被本机策略拦截；本轮仅用 Python 删除两个已校验路径的临时文件，未做递归删除。
 
 ## 6. 下一轮建议
 
 1. （历史完成）统计、隔离、端口和 UI 修复见 `3ff9be7`；本轮边界与看板修复见 `5242693`、`299ac71`。
-2. 设置 `DEEPSEEK_API_KEY` 后执行 2 个真实视觉用例，并在网页端跑一次非 D03 维度。
-3. 设计“一键 10 维评测”任务队列：并发、取消、失败重试、逐维结果恢复。
-4. 如需清理 `app/data` 历史孤儿文件，先让用户确认保留策略，再按 DB 引用关系清理。
+2. 设计“一键 10 维评测”任务队列：并发、取消、失败重试、逐维结果恢复；执行前预估 token/费用上限并在超限时停止。
+3. 如需清理 `app/data` 历史孤儿文件，先让用户确认保留策略，再按 DB 引用关系清理。
 
 ## 7. 关键文件
 
