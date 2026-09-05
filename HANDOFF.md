@@ -1,8 +1,8 @@
 # AI 视频质量评测项目交接记录
 
-> 更新时间：2026-09-03 12:06 +08:00
+> 更新时间：2026-09-05 17:45 +08:00
 > 当前结论：P1/P2/P3 已完成；P4 的主观评分、专家仲裁、可靠性、VBench 导出、托盘与边界测试、产品介绍页已进入网页端。2026-09-01 下午增量审计修复路径安全、无效专家仲裁、windowed 日志、上传错误反馈、双曲线雷达与 pytest 日志隔离，提交为 `5242693`、`299ac71`。2026-09-03 真实 DeepSeek 视觉探测与网页端 D01 评测已验证可行。
-> 当前 Git：`master`；最近代码提交为 `5242693`、`299ac71`，本轮仅追加交接文档提交。`app/_audit_0902.py` 是本轮开始前已有未跟踪脚本，未改动。
+> 当前 Git：`master`；最近代码提交为 `e4c0891`（feat: API Key 持久化 + 脱敏回显，取消一键十维），其前为 `54b5a1f`（docs: DeepSeek 实测结论）。`app/_verify_key.py` 临时验证脚本已删除，工作区干净。
 > 当前运行状态：本轮自启的 `8905` 已停止；临时视频、评分与脚本已清理。共享库保留本轮开始前已有的 `a5069653 / audit_0902`（1 视频、1 分数），本轮新增记录已删除。`8765/8876/8904` 为外部进程，本轮未擅停。
 
 ## 1. 环境与入口
@@ -77,6 +77,18 @@
 - **网页端产品链路**：可见 Edge 填写 Base URL / 模型 / API Key，上传 320x180 临时视频，点击 D01 后自动探测并真实评测，返回 `10.0/10`、confidence `0.98`；UI 删除本轮视频成功。此段 2 次请求（探测 + 8 帧评分），产品响应不透出 usage，仅用余额监控，未见明显扣减。
 - **消耗结论**：全程共 4 次模型请求；最终余额 `44.49 CNY`，观察到的余额降幅 `0.01 CNY`。按官方价格页 `deepseek-v4-flash-vision-exp` 1M cache-miss input / output 计价，已精确测得的 `2,225 tokens` 理论费用低于余额显示精度，扣减量正常。API Key 未写入 config、代码、交接或 Git；测试浏览器已关闭。
 
+### 2026-09-05 API Key 持久化 + 脱敏回显 + 取消一键十维（已提交 `e4c0891`）
+
+按用户 9/5 明确决策，落实三项产品行为变更：
+
+1. **取消一键出十维**：保持「逐维度评测」为唯一路径，不做批量十维评测与任务队列。产品介绍页边界描述由“还没有一键十维”改为“刻意采用逐维度评测”。
+2. **API Key 持久化**：`save_lmm_config()` 写入 `app/config.json`（gitignored）；前端“保存配置”后落库，刷新后自动回填，不再依赖 sessionStorage，用户无需每次测试重填。
+3. **API Key 脱敏**：`mask_api_key()` 保留首尾各 10 位、中段以 `*` 覆盖；查看/修改时仅回显脱敏串、输入框只读，“更换”按钮触发重新输入；真实 Key 不落前端明文。关键不变量：含 `*` 的脱敏串不会被写回覆盖真 Key（`test_lmm_config` 第 5 例显式校验“落库 key 仍为原文”）。
+
+- 新增 `GET/POST /api/config/lmm`（脱敏视图 / 保存）；`_resolve_lmm` 在请求字段为空或传入脱敏串时回退到已保存配置。
+- 新增 `app/tests/test_lmm_config.py`（9 用例全绿），覆盖首尾保留、无明文泄漏、短 Key 全掩、保存持久化、脱敏串不覆盖真 Key、空 Key 保留旧值、脱敏视图不回显明文。
+- mypy 闸门：`server.py` 对可选依赖 `pystray`/`PIL` 的延迟导入补 `type: ignore[import-untyped]`，恢复 0 error（该 `import-untyped` 为预存，非本次功能引入）。
+
 ## 3. 验证证据
 
 ### 三轮审计
@@ -94,7 +106,7 @@ cd "F:\AI\codex project\AI视频评测\app"
 & "C:\Users\asus\.workbuddy\binaries\python\envs\videoeval\Scripts\python.exe" -m mypy core server.py
 ```
 
-- Pytest：`31 passed, 2 skipped`（2 个真实 DeepSeek 用例因未设置 `DEEPSEEK_API_KEY` 跳过）
+- Pytest：`50 passed, 2 skipped`（2 个真实 DeepSeek 用例因未设置 `DEEPSEEK_API_KEY` 跳过）
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 10 source files`
 - `git diff --check`：通过
@@ -121,6 +133,13 @@ cd "F:\AI\codex project\AI视频评测\app"
 - Pytest（未注入 Key，真实 API 用例按设计跳过）：`41 passed, 2 skipped`
 - Ruff：`All checks passed!`
 - Mypy：`Success: no issues found in 10 source files`
+
+2026-09-05 复核（提交 `e4c0891`）：
+
+- Pytest（从 `app/` 运行；`core` 仅在 `app/` 为 cwd 时可导入）：`50 passed, 2 skipped`
+- Ruff：`All checks passed!`
+- Mypy：`Success: no issues found in 10 source files`（补 `pystray`/`PIL` 延迟导入 `type: ignore` 后恢复 0 error）
+- `node --check web/app.js`：通过
 
 ### 真实 Edge 点击流
 
@@ -169,11 +188,11 @@ cd "F:\AI\codex project\AI视频评测\app"
 ## 4. 未完成
 
 1. ~~真实 DeepSeek 视觉链路仍未执行~~ 已解决：2026-09-03 核心链路和网页端 D01 均通过；测试 Key 未持久化。
-2. 网页端还没有“一键 10 维评测”和任务队列，多维度仍需逐卡执行。
+2. ~~网页端还没有“一键 10 维评测”和任务队列~~ 已按用户 9/5 决策放弃：刻意采用逐维度评测，不实现批量十维与任务队列。
 3. ~~2026-09-01 下午改动未提交~~ 已解决：代码提交为 `5242693`、`299ac71`。
 4. 可靠性统计当前只统计人工标注员，专家仲裁作为导出覆盖值，不参与 ICC/Krippendorff；若产品希望专家也参与一致性，需要先定义口径。
 5. `app/data` 中存在历史孤儿媒体/日志文件；本轮只删除本轮生成和本轮测试对应数据，未清理可能属于用户的历史运行数据。
-6. 产品接口目前不透出模型 `usage`，本轮只能通过外层 wrapper 与余额接口监控；若进入批量十维测试，应先在服务端记录并在 UI 展示每次/累计 token。
+6. ~~产品接口目前不透出模型 usage...若进入批量十维测试应先展示 token~~ 批量十维已取消，usage 透出需求随之作废；若日后恢复批量再评估。
 
 ## 5. 阻塞与外部状态
 
@@ -185,7 +204,7 @@ cd "F:\AI\codex project\AI视频评测\app"
 ## 6. 下一轮建议
 
 1. （历史完成）统计、隔离、端口和 UI 修复见 `3ff9be7`；本轮边界与看板修复见 `5242693`、`299ac71`。
-2. 设计“一键 10 维评测”任务队列：并发、取消、失败重试、逐维结果恢复；执行前预估 token/费用上限并在超限时停止。
+2. ~~设计“一键 10 维评测”任务队列~~ 已按用户 9/5 决策取消，不纳入路线。
 3. 如需清理 `app/data` 历史孤儿文件，先让用户确认保留策略，再按 DB 引用关系清理。
 
 ## 7. 关键文件
