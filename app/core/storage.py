@@ -79,6 +79,53 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
+def mask_api_key(key):
+    """首部与尾部各保留 10 位，中间打星号；短 key 自动降级保证仍被遮住。
+
+    只用于界面展示，任何需要真正调用模型的路径都不应使用本函数的结果。
+    """
+    if not key:
+        return ""
+    n = len(key)
+    if n <= 3:
+        return "*" * n
+    if n >= 26:
+        keep = 10
+    elif n >= 12:
+        keep = 4
+    else:
+        keep = 2
+    if n <= keep * 2 + 3:
+        keep = max(1, (n - 3) // 2)
+    return key[:keep] + "*" * (n - keep * 2) + key[-keep:]
+
+
+def load_lmm_config_masked():
+    """LMM 配置的可安全下发版本：API Key 只回传脱敏串。"""
+    lmm = load_config().get("lmm", {})
+    key = lmm.get("api_key") or ""
+    return {"base_url": lmm.get("base_url", ""),
+            "model": lmm.get("model", ""),
+            "has_key": bool(key),
+            "api_key_masked": mask_api_key(key)}
+
+
+def save_lmm_config(base_url, model, api_key):
+    """持久化 LMM 配置。
+
+    api_key 为空、或看起来是界面回显的脱敏串（含 `*`）时保持原值不变，
+    避免用户未改动 Key 直接保存把真实 Key 覆盖成星号。
+    """
+    cfg = load_config()
+    lmm = cfg.setdefault("lmm", {})
+    lmm["base_url"] = base_url
+    lmm["model"] = model
+    if api_key and "*" not in api_key:
+        lmm["api_key"] = api_key
+    save_config(cfg)
+    return load_lmm_config_masked()
+
+
 def get_video_path(video_id):
     def safe_path(filename):
         root = os.path.abspath(VIDEOS_DIR)

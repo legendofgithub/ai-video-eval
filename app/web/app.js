@@ -10,6 +10,7 @@ const state = {
   dims: [],
   video: null,
   lmm: { base_url: "", api_key: "", model: "" },
+  savedKey: false,   // 服务端 config.json 中已有可用 Key
   vision: "unknown", // unknown | checking | ok | no_vision
   results: {},
   boardVideos: [],
@@ -37,7 +38,9 @@ function showConfirm(msg, onOk) {
 }
 
 function lmmReady() {
-  return Boolean(state.lmm.base_url && state.lmm.api_key && state.lmm.model);
+  if (!(state.lmm.base_url && state.lmm.model)) return false;
+  // 明文 Key（本次刚输入）或服务端已保存的 Key，二者有一即可
+  return Boolean(state.lmm.api_key || state.savedKey);
 }
 
 async function postForm(url, data) {
@@ -179,14 +182,76 @@ async function deleteVideo(v) {
 }
 
 function readLmmFromUi() {
+  const raw = $("lmmKey").value.trim();
   state.lmm = {
     base_url: $("lmmBase").value.trim(),
-    api_key: $("lmmKey").value.trim(),
+    // 回显的脱敏串不是真 Key，留空让服务端回落到 config.json
+    api_key: raw.includes("*") ? "" : raw,
     model: $("lmmModel").value.trim(),
   };
   localStorage.setItem("ve_base", state.lmm.base_url);
   localStorage.setItem("ve_model", state.lmm.model);
-  sessionStorage.setItem("ve_key", state.lmm.api_key);
+}
+
+function setKeyField(value, locked) {
+  const el = $("lmmKey");
+  el.value = value;
+  el.readOnly = Boolean(locked);
+  $("btnChangeKey").hidden = !locked;
+}
+
+function setSaveHint(text, isError) {
+  const el = $("lmmSaveHint");
+  el.textContent = text;
+  el.className = isError ? "save-hint error" : "save-hint";
+}
+
+async function loadLmmConfig() {
+  try {
+    const r = await fetch("/api/config/lmm");
+    if (!r.ok) return;
+    const c = await r.json();
+    if (c.base_url) $("lmmBase").value = c.base_url;
+    if (c.model) $("lmmModel").value = c.model;
+    state.savedKey = Boolean(c.has_key);
+    if (c.has_key) {
+      setKeyField(c.api_key_masked, true);
+      setSaveHint("已保存，回显为脱敏值 · 点击「更换」可重新输入");
+    }
+    state.lmm = { base_url: $("lmmBase").value.trim(), api_key: "",
+                  model: $("lmmModel").value.trim() };
+  } catch (e) {
+    setSaveHint("读取已保存配置失败，可手动填写后保存");
+  }
+}
+
+async function saveLmm() {
+  const body = new FormData();
+  body.set("base_url", $("lmmBase").value.trim());
+  body.set("model", $("lmmModel").value.trim());
+  body.set("api_key", $("lmmKey").value.trim());
+  try {
+    const r = await fetch("/api/config/lmm", { method: "POST", body });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || "保存失败");
+    state.savedKey = Boolean(d.has_key);
+    if (d.has_key) setKeyField(d.api_key_masked, true);
+    setSaveHint(d.has_key
+      ? "已保存到本机 config.json · 回显为脱敏值"
+      : "已保存（未设置 API Key，评测前需填写）");
+    state.vision = "unknown";
+    setVisionStatus("unknown", "未检测");
+    readLmmFromUi();
+  } catch (e) {
+    setSaveHint(e.message, true);
+  }
+}
+
+function changeKey() {
+  setKeyField("", false);
+  state.savedKey = false;
+  $("lmmKey").placeholder = "输入新的 API Key";
+  $("lmmKey").focus();
 }
 
 function setVisionStatus(st, text) {
@@ -648,7 +713,6 @@ function exportVbench() {
 function init() {
   $("lmmBase").value = localStorage.getItem("ve_base") || "";
   $("lmmModel").value = localStorage.getItem("ve_model") || "";
-  $("lmmKey").value = sessionStorage.getItem("ve_key") || "";
 
   $("videoInput").addEventListener("change", async (e) => {
     const input = e.currentTarget;
@@ -668,6 +732,8 @@ function init() {
     if (f) uploadVideo(f);
   });
   $("pvRemove").addEventListener("click", () => setPendingVideo(null));
+  $("btnSaveLmm").addEventListener("click", saveLmm);
+  $("btnChangeKey").addEventListener("click", changeKey);
   $("btnCheckVision").addEventListener("click", checkVision);
   $("btnBack").addEventListener("click", () => showView("home"));
   $("btnRun").addEventListener("click", runTest);
@@ -685,6 +751,7 @@ function init() {
     b.addEventListener("click", () => showView(b.dataset.view)));
 
   loadDims().then(loadRecent).catch((e) => showModal(`初始化失败：${e.message}`));
+  loadLmmConfig();
 }
 
 init();

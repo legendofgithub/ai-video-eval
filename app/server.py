@@ -35,7 +35,10 @@ from core import (
     init_db,
     insert_objective_score,
     list_videos,
+    load_config,
+    load_lmm_config_masked,
     probe_vision,
+    save_lmm_config,
     save_subjective,
     signal_metrics,
 )
@@ -165,9 +168,44 @@ def api_delete_video(video_id: str):
             status_code=409, detail="文件正在被使用，请关闭播放后重试") from None
 
 
+def _resolve_lmm(base_url, api_key, model):
+    """Fill missing LMM settings from the saved configuration.
+
+    An api_key coming back from the masked UI field contains `*` and is never
+    a usable secret, so it is discarded before falling back.
+    """
+    if api_key and "*" in api_key:
+        api_key = ""
+    if base_url and api_key and model:
+        return base_url, api_key, model
+    saved = load_config().get("lmm", {})
+    return (base_url or saved.get("base_url", ""),
+            api_key or saved.get("api_key", ""),
+            model or saved.get("model", ""))
+
+
+@server.get("/api/config/lmm")
+def get_lmm_config():
+    """Saved LMM settings, with the API Key replaced by a masked string."""
+    return load_lmm_config_masked()
+
+
+@server.post("/api/config/lmm")
+def post_lmm_config(base_url: str = Form(""), model: str = Form(""),
+                    api_key: str = Form("")):
+    base_url = base_url.strip()
+    model = model.strip()
+    if not base_url or not model:
+        raise HTTPException(status_code=400, detail="Base URL 与模型名称不能为空")
+    return save_lmm_config(base_url, model, api_key.strip())
+
+
 @server.post("/api/check-vision")
-def check_vision(base_url: str = Form(...), api_key: str = Form(...),
-                 model: str = Form(...)):
+def check_vision(base_url: str = Form(""), api_key: str = Form(""),
+                 model: str = Form("")):
+    base_url, api_key, model = _resolve_lmm(base_url, api_key, model)
+    if not (base_url and api_key and model):
+        return {"has_vision": False, "missing": True}
     return probe_vision(base_url, api_key, model)
 
 
@@ -194,6 +232,7 @@ def evaluate(dim_id: str, video_id: str = Form(...),
                                task_id="task_web")
         return {"dim_id": dim_id, **res, "method": "objective"}
 
+    base_url, api_key, model = _resolve_lmm(base_url, api_key, model)
     if not (base_url and api_key and model):
         raise HTTPException(status_code=400, detail="请提供测试用视觉模型")
     cfg = {"base_url": base_url, "api_key": api_key, "model": model,
@@ -285,8 +324,8 @@ def _start_tray(port):
     require pystray/Pillow to be installed.
     """
     try:
-        import pystray
-        from PIL import Image
+        import pystray  # type: ignore[import-untyped]
+        from PIL import Image  # type: ignore[import-untyped]
     except Exception as e:  # pragma: no cover - depends on optional deps
         print(f"[tray] unavailable: {e}")
         return False

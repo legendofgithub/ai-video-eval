@@ -76,11 +76,21 @@
         </div>
         <label class="field">Base URL<input type="text" id="lmmBase" placeholder="https://api.deepseek.com/v1"></label>
         <label class="field">模型名称<input type="text" id="lmmModel" placeholder="deepseek-v4-flash-vision-exp"></label>
-        <label class="field">API Key<input type="password" id="lmmKey" placeholder="仅保存在本浏览器会话"></label>
-        <button class="btn ghost" id="btnCheckVision">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          检测视觉能力
-        </button>
+        <div class="field">
+          <span>API Key</span>
+          <span class="key-row">
+            <input type="text" id="lmmKey" placeholder="保存后仅回显首尾各 10 位" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn tiny" id="btnChangeKey" hidden>更换</button>
+          </span>
+        </div>
+        <div class="btn-row">
+          <button class="btn ghost" id="btnSaveLmm">保存配置</button>
+          <button class="btn ghost" id="btnCheckVision">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            检测视觉能力
+          </button>
+        </div>
+        <span class="save-hint" id="lmmSaveHint">配置保存在本机 config.json，回显时脱敏</span>
         <div class="vision-status" id="visionStatus">
           <span class="dot" id="visionDot"></span><span id="visionText">未检测</span>
         </div>
@@ -545,7 +555,7 @@ D10 因果错乱(先碎后落) @ 00:07 ; 高</pre>
         <li><b>不做镜头结构分析。</b>没有镜头切点检测，多镜头题只能评"连不连贯"，评不了"切得对不对"。</li>
         <li><b>本地信号指标是启发式的。</b>D03 / D04 的映射公式不是学术标准指标，它的价值在于确定性和可复现，不在于与人类感知的绝对对齐。</li>
         <li><b>大模型打分不是 ground truth。</b>它是可复现的近似标注，人工 MOS 与专家仲裁才是校准基准。</li>
-        <li><b>还没有一键十维。</b>当前需要逐维度触发，任务队列与并发调度是下一步的事。</li>
+        <li><b>刻意采用逐维度评测。</b>每个维度单独触发、单独出分，便于逐维复核判断依据与单次调用成本；批量十维不在当前设计范围内。</li>
       </ul>
     </section>
   </main>
