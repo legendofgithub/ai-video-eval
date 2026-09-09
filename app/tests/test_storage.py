@@ -23,7 +23,9 @@ def test_add_and_duplicate(tmp_env, real_video):
     assert r2["filename"] == r1["filename"]
     assert r2["resolution"] == r1["resolution"]
     assert r2["model_tag"] == r1["model_tag"]
-    assert len(storage.list_videos()) == 1
+    listed = storage.list_videos()
+    assert len(listed) == 1
+    assert isinstance(listed[0]["fps"], int) and listed[0]["fps"] > 0
 
 
 def test_delete_removes_file_and_records(tmp_env, real_video):
@@ -97,3 +99,37 @@ def test_subjective_rejects_out_of_range_and_unknown_dims(tmp_env):
     with pytest.raises(ValueError, match="未知评测维度"):
         storage.save_subjective("v", "user", "u1", {"D99": 5},
                                 "na", "", "", "")
+
+
+def test_legacy_files_migrate_into_data(tmp_path, monkeypatch):
+    app = tmp_path / "app"
+    data = app / "data"
+    data.mkdir(parents=True)
+    (app / "evaluation.db").write_bytes(b"old-db")
+    (app / "config.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(storage, "BASE", str(app))
+    monkeypatch.setattr(storage, "DATA", str(data))
+    monkeypatch.delenv("VIDEOEVAL_SKIP_MIGRATION", raising=False)
+
+    db_path = storage._runtime_path("evaluation.db")
+    cfg_path = storage._runtime_path("config.json")
+
+    assert db_path == str(data / "evaluation.db")
+    assert (data / "evaluation.db").read_bytes() == b"old-db"
+    assert not (app / "evaluation.db").exists()
+    assert cfg_path == str(data / "config.json")
+    assert (data / "config.json").exists()
+
+
+def test_migration_skipped_under_env_flag(tmp_path, monkeypatch):
+    app = tmp_path / "app"
+    data = app / "data"
+    data.mkdir(parents=True)
+    (app / "evaluation.db").write_bytes(b"old-db")
+    monkeypatch.setattr(storage, "BASE", str(app))
+    monkeypatch.setattr(storage, "DATA", str(data))
+    monkeypatch.setenv("VIDEOEVAL_SKIP_MIGRATION", "1")
+
+    assert storage._runtime_path("evaluation.db") == str(data / "evaluation.db")
+    assert (app / "evaluation.db").exists()
+    assert not (data / "evaluation.db").exists()

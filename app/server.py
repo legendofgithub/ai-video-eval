@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core import (
+    DIM_IDS,
     DIMENSIONS,
     MAX_UPLOAD_MB,
     TEMPORAL_SIGNAL_DIMS,
@@ -28,18 +29,21 @@ from core import (
     compute_icc_matrix,
     compute_krippendorff_alpha,
     dashboard_data,
+    delete_test_record,
     delete_video,
     export_vbench,
     get_conn,
     get_video_path,
     init_db,
     insert_objective_score,
+    list_test_records,
     list_videos,
     load_config,
     load_lmm_config_masked,
     probe_vision,
     save_lmm_config,
     save_subjective,
+    save_test_record,
     signal_metrics,
 )
 from core.logger import get_logger
@@ -120,6 +124,23 @@ def api_list_videos():
     return list_videos()
 
 
+@server.get("/api/model-tags")
+def api_model_tags():
+    """Distinct model tags with usage counts, most-used first.
+
+    Feeds the upload form's autocomplete so the same model never splits
+    into multiple leaderboard rows over spelling drift (可灵/kling/Kling).
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT model_tag, COUNT(*) AS n FROM videos
+                 WHERE model_tag IS NOT NULL AND model_tag != ''
+                 GROUP BY model_tag ORDER BY n DESC, model_tag""")
+    rows = c.fetchall()
+    conn.close()
+    return [{"model_tag": r[0], "count": r[1]} for r in rows]
+
+
 @server.get("/api/scores")
 def api_scores(video_id: str):
     """Latest objective score per dimension for a video (newest wins)."""
@@ -141,6 +162,91 @@ def api_scores(video_id: str):
                                "note": val.get("note", ""),
                                "method": "objective"}
     return out
+
+
+@server.post("/api/evaluate-all")
+def evaluate_all(video_id: str = Form(...), prompt_text: str = Form(""),
+                 base_url: str = Form(""), api_key: str = Form(""),
+                 model: str = Form(""), n_frames: int = Form(8)):
+    """One-click full evaluation: local D03/D04 plus every vision dimension.
+
+    Per-dimension failures never persist and never abort the batch; the
+    response carries every dimension with value=null for the failed ones.
+    """
+    if not get_video_path(video_id):
+        raise HTTPException(status_code=404, detail="视频不存在")
+    results = {}
+    local_dims = [d["dim_id"] for d in DIMENSIONS
+                  if d["dim_id"] in TEMPORAL_SIGNAL_DIMS]
+    for dim_id, res in signal_metrics(
+            get_video_path(video_id), local_dims).items():
+        if res.get("value") is not None:
+            insert_objective_score(video_id, dim_id, res, rater="signal_local",
+                                   model="local_cpu", task_id="task_web")
+        results[dim_id] = res
+
+    base_url, api_key, model = _resolve_lmm(base_url, api_key, model)
+    lmm_dims = [d["dim_id"] for d in DIMENSIONS
+                if d["dim_id"] not in TEMPORAL_SIGNAL_DIMS]
+    if not (base_url and api_key and model):
+        for dim_id in lmm_dims:
+            results[dim_id] = {"value": None, "confidence": None,
+                               "note": "未配置视觉模型"}
+        return results
+    cfg = {"base_url": base_url, "api_key": api_key, "model": model,
+           "n_frames": max(1, min(int(n_frames), 32)),
+           "temperature": 0.0, "samplings": 1}
+    for dim_id, res in auto_evaluate(video_id, lmm_dims, cfg,
+                                     prompt_text).items():
+        if res.get("value") is not None:
+            insert_objective_score(video_id, dim_id, res, rater="lmm_" + model,
+                                   model=model, task_id="task_web")
+        results[dim_id] = res
+    return results
+
+
+class RecordIn(BaseModel):
+    video_id: str
+
+
+@server.post("/api/records")
+def create_record(p: RecordIn):
+    """Archive a snapshot of the latest objective score per dimension."""
+    if not get_video_path(p.video_id):
+        raise HTTPException(status_code=404, detail="视频不存在")
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT filename, model_tag FROM videos WHERE video_id=?",
+              (p.video_id,))
+    row = c.fetchone()
+    c.execute("""SELECT scores FROM scores
+                 WHERE video_id=? AND method='objective'
+                 ORDER BY created_at DESC""", (p.video_id,))
+    score_rows = c.fetchall()
+    conn.close()
+    snap = {}
+    for (sc_json,) in score_rows:
+        for dim_id, val in json.loads(sc_json).items():
+            if (dim_id not in snap and isinstance(val, dict)
+                    and val.get("value") is not None):
+                snap[dim_id] = round(float(val["value"]), 2)
+    scores = {d: snap.get(d) for d in DIM_IDS}
+    rid = save_test_record(p.video_id, row[0] if row else p.video_id,
+                           row[1] if row else "", scores)
+    return {"ok": True, "record_id": rid, "scores": scores}
+
+
+@server.get("/api/records")
+def api_list_records():
+    return list_test_records()
+
+
+@server.delete("/api/records/{record_id}")
+def api_delete_record(record_id: str):
+    try:
+        return delete_test_record(record_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="记录不存在") from None
 
 
 @server.get("/api/video/{video_id}/file")
@@ -327,7 +433,9 @@ def _start_tray(port):
         import pystray  # type: ignore[import-untyped]
         from PIL import Image  # type: ignore[import-untyped]
     except Exception as e:  # pragma: no cover - depends on optional deps
-        print(f"[tray] unavailable: {e}")
+        # Never print() here: windowed builds have no stdout and print would
+        # itself raise, killing the whole app during startup.
+        log.warning("tray unavailable: %s", e)
         return False
     img = Image.new("RGB", (64, 64), (37, 99, 235))
 
@@ -348,18 +456,51 @@ def _start_tray(port):
 
 
 if __name__ == "__main__":
+    import urllib.request
+
     import uvicorn
-    port = int(os.environ.get("VIDEOEVAL_PORT", "8765"))
-    if not is_port_free(port):
-        _report_port_busy(port)
-        raise SystemExit(2)
+
+    def own_app_on(candidate):
+        """True when an instance of this app already serves on candidate."""
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{candidate}/api/health", timeout=1.5) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            return bool(data.get("ok")) and "dimensions" in data
+        except Exception:
+            return False
+
     no_browser = os.environ.get("VIDEOEVAL_NO_BROWSER", "").lower() in {"1", "true", "yes"}
+    strict = "VIDEOEVAL_PORT" in os.environ
+    preferred = int(os.environ.get("VIDEOEVAL_PORT", "8765"))
+    # Plain double-click must always work: attach to the running instance if
+    # it is ours, otherwise fall forward to the next port. An explicit
+    # VIDEOEVAL_PORT (automation) stays strict about its requested port.
+    candidates = [preferred] if strict else [preferred] + list(range(8766, 8776))
+    port = None
+    for candidate in candidates:
+        if is_port_free(candidate):
+            port = candidate
+            break
+        if own_app_on(candidate):
+            if not no_browser:
+                webbrowser.open(f"http://127.0.0.1:{candidate}")
+            log.info("app already running on port %s; exiting this launch", candidate)
+            raise SystemExit(0)
+    if port is None:
+        _report_port_busy(preferred)
+        raise SystemExit(2)
+    if port != preferred:
+        log.warning("preferred port %s busy; serving on %s", preferred, port)
     if getattr(sys, "frozen", False):
-        # Windowed build: serve from the tray; browser opens via the tray menu.
+        # Windowed build: auto-open the browser so a double-click needs zero
+        # further action (tray icons often hide in the Win11 overflow area,
+        # which made the app look like it silently did nothing). The tray
+        # stays available for re-opening and quitting.
         if not no_browser:
-            if not _start_tray(port):
-                threading.Timer(1.5, lambda: webbrowser.open(
-                    f"http://127.0.0.1:{port}")).start()
+            _start_tray(port)
+            threading.Timer(2.0, lambda: webbrowser.open(
+                f"http://127.0.0.1:{port}")).start()
         uvicorn.run(server, host="127.0.0.1", port=port, log_config=None)
     else:
         if not no_browser:

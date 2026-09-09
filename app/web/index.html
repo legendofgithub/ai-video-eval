@@ -23,6 +23,7 @@
       <button class="nav-tab active" data-view="home">评测主页</button>
       <button class="nav-tab" data-view="board">数据看板</button>
       <button class="nav-tab" data-view="work">评分工作台</button>
+      <button class="nav-tab" data-view="records">测评档案</button>
       <button class="nav-tab nav-tab-intro" data-view="intro">产品介绍</button>
     </nav>
     <span class="tested-count" id="testedCount">已测 0 / 10</span>
@@ -60,7 +61,8 @@
           <p class="adv-hint">生成 Prompt 仅在测试 D07 文本对齐时填写；模型标识用于多模型对比。其余情况都可不填。</p>
           <div class="field-row">
             <label>生成 Prompt<input type="text" id="promptText" placeholder="生成视频时使用的文字指令"></label>
-            <label>模型标识<input type="text" id="modelTag" placeholder="如 Sora / 可灵 / 自测v2"></label>
+            <label>模型标识<input type="text" id="modelTag" list="modelTagOptions" placeholder="如 Sora / 可灵 / 自测v2"></label>
+            <datalist id="modelTagOptions"></datalist>
           </div>
         </details>
         <div class="recent" id="recentWrap" hidden>
@@ -99,9 +101,14 @@
     </section>
 
     <section class="dims-section">
-      <div class="section-head">
-        <h2>选择评测维度</h2>
-        <p>点击任意维度卡片开始测试</p>
+      <div class="section-head flex">
+        <button class="btn primary" id="btnRunAll" title="D03/D04 本地出分，其余 8 维连续调用视觉模型，约 1-2 分钟">一键完成测评</button>
+        <div class="titles">
+          <h2>选择评测维度</h2>
+          <p>点击任意维度卡片开始测试</p>
+        </div>
+        <span class="hint" id="runAllStatus"></span>
+        <button class="btn ghost" id="btnArchive">归档测评结果</button>
       </div>
       <div class="dims-grid" id="dimsGrid"></div>
     </section>
@@ -197,7 +204,29 @@
       </div>
 
       <div class="card" style="margin-top:18px">
-        <div class="card-title"><h2>② 10 维主观评分（0–10）</h2></div>
+        <div class="card-title"><h2>② 播放待评视频（逐帧 / 慢放核对）</h2></div>
+        <video id="wbPlayer" controls playsinline hidden></video>
+        <p class="hint" id="wbPlayerHint">暂无视频可播放，请先在主页上传。</p>
+        <div class="wb-player-bar">
+          <label class="wb-speed">倍速
+            <select id="wbSpeed" aria-label="播放倍速">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+          <button type="button" class="btn ghost" id="wbStepBack" title="后退一帧">◀ 一帧</button>
+          <button type="button" class="btn ghost" id="wbPlayPause">播放</button>
+          <button type="button" class="btn ghost" id="wbStepFwd" title="前进一帧">一帧 ▶</button>
+          <button type="button" class="btn ghost" id="wbMarkTime" title="把当前时间插入备注框">打点 @ mm:ss</button>
+          <span class="wb-time" id="wbTime">00:00 / 00:00</span>
+        </div>
+        <p class="hint">SOP 要求逐帧或 0.25× 慢放核对疑似异常后再打分；低分备注建议「违规类型 @ mm:ss」格式，可用打点按钮生成时间戳。</p>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-title"><h2>③ 10 维主观评分（0–10）</h2></div>
         <div id="wbSliders"></div>
         <p class="gate-row">评分低于或等于 4 的维度必须选择对应的低分原因；不同维度可独立选择。</p>
         <label class="field" style="margin-top:10px">备注（违规类型@时间戳；仲裁理由）
@@ -208,15 +237,27 @@
       </div>
 
       <div class="card" style="margin-top:18px">
-        <div class="card-title"><h2>③ 评分一致性（ICC 与 Krippendorff's α）</h2></div>
+        <div class="card-title"><h2>④ 评分一致性（ICC 与 Krippendorff's α）</h2></div>
         <div id="reliability"></div>
         <p class="hint">仅统计 is_valid=1 的人工标注评分；ICC&lt;0.6 或 α&lt;0.667 标红预警，说明标注员分歧较大。</p>
       </div>
 
       <div class="card" style="margin-top:18px">
-        <div class="card-title"><h2>④ 导出 VBench 兼容 JSON</h2></div>
+        <div class="card-title"><h2>⑤ 导出 VBench 兼容 JSON</h2></div>
         <button class="btn ghost" id="wbExport">下载 vbench_export.json</button>
         <p class="hint">仅含已标模型标识的视频（主观/专家有效分）。</p>
+      </div>
+    </section>
+  </main>
+
+  <main id="viewRecords" class="view" hidden>
+    <section class="board-section">
+      <div class="section-head">
+        <h2>测评档案</h2>
+        <p>归档的完整测评快照 · 保存在本机 evaluation.db，重启应用仍在</p>
+      </div>
+      <div class="card" style="margin-top:18px">
+        <div id="recordsTable"></div>
       </div>
     </section>
   </main>
@@ -555,7 +596,7 @@ D10 因果错乱(先碎后落) @ 00:07 ; 高</pre>
         <li><b>不做镜头结构分析。</b>没有镜头切点检测，多镜头题只能评"连不连贯"，评不了"切得对不对"。</li>
         <li><b>本地信号指标是启发式的。</b>D03 / D04 的映射公式不是学术标准指标，它的价值在于确定性和可复现，不在于与人类感知的绝对对齐。</li>
         <li><b>大模型打分不是 ground truth。</b>它是可复现的近似标注，人工 MOS 与专家仲裁才是校准基准。</li>
-        <li><b>刻意采用逐维度评测。</b>每个维度单独触发、单独出分，便于逐维复核判断依据与单次调用成本；批量十维不在当前设计范围内。</li>
+        <li><b>一键测评与逐维评测并存。</b>「一键完成测评」一次跑完十维（D03/D04 本地、8 维连续调用视觉模型，约 1–2 分钟），失败维度跳过且不落库；逐维度评测仍保留，用于单维复核与成本控制。归档快照存入「测评档案」，独立于后续重测。</li>
       </ul>
     </section>
   </main>

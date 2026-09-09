@@ -26,13 +26,42 @@ BASE = _app_base()
 DATA = os.path.join(BASE, "data")
 VIDEOS_DIR = os.path.join(DATA, "videos")
 FRAMES_DIR = os.path.join(DATA, "frames")
-DB = os.path.join(BASE, "evaluation.db")
-CONFIG_PATH = os.path.join(BASE, "config.json")
 
 os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(FRAMES_DIR, exist_ok=True)
 
 MAX_UPLOAD_MB = 500
+
+
+def _runtime_path(name):
+    """Runtime files live inside data/ so a double-click leaves exactly one
+    folder beside the exe. Pre-2026-09 copies sat beside the exe instead;
+    pull them in once. A file locked by a concurrent process is read where
+    it is for this run (tests set VIDEOEVAL_SKIP_MIGRATION to opt out)."""
+    target = os.path.join(DATA, name)
+    legacy = os.path.join(BASE, name)
+    if os.environ.get("VIDEOEVAL_SKIP_MIGRATION"):
+        return target
+    if not os.path.isfile(legacy) or os.path.isfile(target):
+        return target
+    try:
+        os.replace(legacy, target)
+        log.info("migrated legacy %s into data/", name)
+        for suffix in ("-wal", "-shm"):
+            side = os.path.join(BASE, name + suffix)
+            if os.path.isfile(side):
+                try:
+                    os.replace(side, target + suffix)
+                except OSError:
+                    pass
+    except OSError:
+        log.warning("legacy %s is locked; using it in place for this run", name)
+        return legacy
+    return target
+
+
+DB = _runtime_path("evaluation.db")
+CONFIG_PATH = _runtime_path("config.json")
 
 
 def get_conn():
@@ -57,6 +86,9 @@ def init_db():
         score_id TEXT PRIMARY KEY, task_id TEXT, video_id TEXT, spec_id TEXT,
         rater_id TEXT, role TEXT, method TEXT, model TEXT,
         scores TEXT, ab_preference TEXT, is_valid INTEGER, created_at TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS test_records (
+        record_id TEXT PRIMARY KEY, video_id TEXT, filename TEXT,
+        model_tag TEXT, scores TEXT, created_at TEXT)""")
     c.execute("SELECT 1 FROM specs WHERE spec_id=?", (DEFAULT_SPEC_ID,))
     if not c.fetchone():
         c.execute("INSERT INTO specs VALUES (?,?,?,?,?)",
@@ -230,14 +262,48 @@ def delete_video(video_id):
     return {"ok": True, "deleted": video_id}
 
 
+def save_test_record(video_id, filename, model_tag, scores):
+    """Archive a snapshot row: {D01: value-or-null, ... D10} for one video."""
+    conn = get_conn(); c = conn.cursor()
+    rid = uuid.uuid4().hex[:10]
+    c.execute("INSERT INTO test_records VALUES (?,?,?,?,?,?)",
+              (rid, video_id, filename, model_tag,
+               json.dumps(scores, ensure_ascii=False),
+               datetime.datetime.now().isoformat()))
+    conn.commit(); conn.close()
+    return rid
+
+
+def list_test_records(limit=200):
+    conn = get_conn(); c = conn.cursor()
+    c.execute("""SELECT record_id, video_id, filename, model_tag, scores, created_at
+                 FROM test_records ORDER BY created_at DESC, record_id LIMIT ?""",
+              (limit,))
+    rows = c.fetchall(); conn.close()
+    return [{"record_id": r[0], "video_id": r[1], "filename": r[2],
+             "model_tag": r[3], "scores": json.loads(r[4]), "created_at": r[5]}
+            for r in rows]
+
+
+def delete_test_record(record_id):
+    conn = get_conn(); c = conn.cursor()
+    c.execute("DELETE FROM test_records WHERE record_id=?", (record_id,))
+    deleted = c.rowcount
+    conn.commit(); conn.close()
+    if not deleted:
+        raise LookupError("记录不存在")
+    return {"ok": True, "deleted": record_id}
+
+
 def list_videos(limit=20):
     conn = get_conn(); c = conn.cursor()
     c.execute("""SELECT video_id, filename, model_tag, resolution,
-                        duration_sec, created_at FROM videos
+                        duration_sec, fps, created_at FROM videos
                  ORDER BY created_at DESC LIMIT ?""", (limit,))
     rows = c.fetchall(); conn.close()
     return [{"video_id": r[0], "filename": r[1], "model_tag": r[2],
-             "resolution": r[3], "duration_sec": r[4], "created_at": r[5],
+             "resolution": r[3], "duration_sec": r[4], "fps": r[5],
+             "created_at": r[6],
             }
             for r in rows]
 

@@ -5,8 +5,9 @@ import os
 
 import numpy as np
 
+from . import storage
 from .dimensions import DIM_IDS, DEFAULT_SPEC_ID
-from .storage import BASE, get_conn
+from .storage import get_conn
 
 
 def _human_score_rows():
@@ -77,7 +78,7 @@ def export_vbench():
                             "layer_means": {k: round(float(v), 2) for k, v in layer_means.items()}})
     out = {"export_version": "vbench_compat_1.0", "spec_id": DEFAULT_SPEC_ID,
            "mos_scale": 10, "leaderboard": leaderboard}
-    out_path = os.path.join(BASE, "vbench_export.json")
+    out_path = os.path.join(storage.DATA, "vbench_export.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     return out_path

@@ -2,7 +2,6 @@
 import json
 
 from core import storage
-from core import export
 from core.export import _human_score_rows, export_vbench
 
 
@@ -44,10 +43,10 @@ def test_partial_expert_arbitration_overlays_only_rated_dimensions(tmp_env, real
     assert rows[vid]["D08"]["value"] == 2
 
 
-def test_export_vbench_writes_leaderboard(tmp_env, monkeypatch):
-    monkeypatch.setattr(export, "BASE", str(tmp_env))
+def test_export_vbench_writes_leaderboard(tmp_env):
     storage.save_subjective("v", "user", "r1", {"D01": 7}, "na", "", "", "")
     out = export_vbench()
     data = json.loads(open(out, encoding="utf-8").read())
     assert data["export_version"] == "vbench_compat_1.0"
     assert isinstance(data["leaderboard"], list)
+    assert str(out).replace("/", "\\").endswith("data\\vbench_export.json")

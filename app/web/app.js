@@ -122,6 +122,14 @@ async function restoreScores(videoId) {
   }
 }
 
+async function loadModelTags() {
+  try {
+    const tags = await (await fetch("/api/model-tags")).json();
+    $("modelTagOptions").innerHTML = tags.map((t) =>
+      `<option value="${escapeHtml(t.model_tag)}">${t.count}</option>`).join("");
+  } catch { /* 自动补全失败不影响主流程 */ }
+}
+
 async function uploadVideo(file) {
   try {
     const data = await postForm("/api/upload", {
@@ -142,6 +150,7 @@ async function uploadVideo(file) {
 
 async function loadRecent() {
   const list = await (await fetch("/api/videos")).json();
+  loadModelTags();
   const wrap = $("recentWrap");
   const el = $("recentList");
   el.innerHTML = "";
@@ -360,6 +369,7 @@ function showView(view) {
   $("viewBoard").hidden = true;
   $("viewDim").hidden = true;
   $("viewWork").hidden = true;
+  $("viewRecords").hidden = true;
   $("viewIntro").hidden = true;
   if (view === "home") $("viewHome").hidden = false;
   else if (view === "board") {
@@ -368,6 +378,9 @@ function showView(view) {
   } else if (view === "work") {
     $("viewWork").hidden = false;
     loadWorkbench();
+  } else if (view === "records") {
+    $("viewRecords").hidden = false;
+    loadRecords();
   } else if (view === "intro") {
     $("viewIntro").hidden = false;
   }
@@ -589,11 +602,94 @@ async function loadWorkbench() {
     sel.innerHTML = list.length
       ? list.map((v) => `<option value="${v.video_id}">${escapeHtml(v.filename)} (${v.model_tag || "未标模型"})</option>`).join("")
       : `<option value="">（暂无视频，请先去主页上传）</option>`;
+    wbFps = {};
+    for (const v of list) wbFps[v.video_id] = v.fps || 24;
     buildSliders();
+    syncWbPlayer();
     await loadReliability();
   } catch (e) {
     showModal("工作台加载失败：" + e.message);
   }
+}
+
+const wbFpsDefault = 24;
+let wbFps = {};
+
+function syncWbPlayer() {
+  const player = $("wbPlayer");
+  const vid = $("wbVideo").value;
+  if (player.dataset.vid === vid) return;
+  player.dataset.vid = vid;
+  if (vid) {
+    player.hidden = false;
+    $("wbPlayerHint").hidden = true;
+    player.src = `/api/video/${vid}/file`;
+  } else {
+    player.hidden = true;
+    $("wbPlayerHint").hidden = false;
+    player.pause();
+    player.removeAttribute("src");
+    player.load();
+    $("wbTime").textContent = "00:00 / 00:00";
+  }
+}
+
+function wbFmt(t) {
+  if (!Number.isFinite(t) || t < 0) t = 0;
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function wbUpdateTime() {
+  const player = $("wbPlayer");
+  $("wbTime").textContent = `${wbFmt(player.currentTime)} / ${wbFmt(player.duration)}`;
+}
+
+function wbStep(frames) {
+  const player = $("wbPlayer");
+  if (!player.src) return;
+  player.pause();
+  const fps = wbFps[player.dataset.vid] || wbFpsDefault;
+  const delta = frames / (fps > 0 ? fps : wbFpsDefault);
+  player.currentTime = Math.max(0, Math.min(
+    player.duration || 0, player.currentTime + delta));
+}
+
+function wbMarkTime() {
+  const player = $("wbPlayer");
+  if (!player.src) return;
+  const note = $("wbNote");
+  const start = note.selectionStart ?? note.value.length;
+  const end = note.selectionEnd ?? start;
+  const stamp = `@ ${wbFmt(player.currentTime)}`;
+  // SOP 备注格式为「违规类型 @ mm:ss」，插入时补齐前导空格
+  const lead = start > 0 && !/\s$/.test(note.value.slice(0, start)) ? " " : "";
+  note.value = note.value.slice(0, start) + lead + stamp + note.value.slice(end);
+  const pos = start + lead.length + stamp.length;
+  note.focus();
+  note.setSelectionRange(pos, pos);
+}
+
+function initWbPlayerControls() {
+  const player = $("wbPlayer");
+  $("wbVideo").addEventListener("change", syncWbPlayer);
+  $("wbStepBack").addEventListener("click", () => wbStep(-1));
+  $("wbStepFwd").addEventListener("click", () => wbStep(1));
+  $("wbPlayPause").addEventListener("click", () => {
+    if (!player.src) return;
+    if (player.paused) player.play(); else player.pause();
+  });
+  player.addEventListener("play", () => { $("wbPlayPause").textContent = "暂停"; });
+  player.addEventListener("pause", () => { $("wbPlayPause").textContent = "播放"; });
+  player.addEventListener("timeupdate", wbUpdateTime);
+  player.addEventListener("loadedmetadata", () => {
+    player.playbackRate = parseFloat($("wbSpeed").value) || 1;
+    wbUpdateTime();
+  });
+  $("wbSpeed").addEventListener("change", () => {
+    player.playbackRate = parseFloat($("wbSpeed").value) || 1;
+  });
+  $("wbMarkTime").addEventListener("click", wbMarkTime);
 }
 
 function buildSliders() {
@@ -710,6 +806,79 @@ function exportVbench() {
   window.location.href = "/api/export/vbench";
 }
 
+async function runAll() {
+  if (!state.video) { showModal("请提供测试视频"); return; }
+  readLmmFromUi();
+  if (!lmmReady()) { showModal("一键测评需要视觉模型：请先在上方填写并保存配置"); return; }
+  if (state.vision !== "ok") {
+    const r = await checkVision();
+    if (!r.has_vision) {
+      showModal(r.missing ? "请提供测试用视觉模型" : "请更换有视觉能力的模型API");
+      return;
+    }
+  }
+  const btn = $("btnRunAll");
+  btn.disabled = true;
+  $("runAllStatus").textContent = "一键测评中：D03/D04 本地 + 8 维连续调用模型，约 1-2 分钟…";
+  try {
+    const r = await postForm("/api/evaluate-all", {
+      video_id: state.video.video_id,
+      prompt_text: $("promptText").value.trim(),
+      ...state.lmm,
+    });
+    const fresh = Object.fromEntries(
+      Object.entries(r).filter(([, v]) => v.value != null));
+    state.results = { ...state.results, ...fresh };
+    renderDims();
+    const failed = Object.entries(r)
+      .filter(([, v]) => v.value == null).map(([k]) => k);
+    $("runAllStatus").textContent = failed.length
+      ? `完成 ${Object.keys(fresh).length}/10，失败：${failed.join(" ")}` : "完成 10/10 维";
+  } catch (e) {
+    $("runAllStatus").textContent = "";
+    showModal(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function archiveResult() {
+  if (!state.video) { showModal("请提供测试视频"); return; }
+  if (!Object.keys(state.results).length) { showModal("请先完成测评再归档"); return; }
+  try {
+    await postForm("/api/records", { video_id: state.video.video_id });
+    $("runAllStatus").textContent = "✓ 已归档到「测评档案」页";
+  } catch (e) {
+    showModal(e.message);
+  }
+}
+
+async function loadRecords() {
+  const wrap = $("recordsTable");
+  try {
+    if (!state.dims.length) await loadDims();
+    const rows = await (await fetch("/api/records")).json();
+    if (!rows.length) {
+      wrap.innerHTML = '<p class="hint">暂无归档记录：在主页完成测评后点「归档测评结果」生成快照。</p>';
+      return;
+    }
+    const head = ["视频名称", ...state.dims.map((d) => d.dim_id), "归档时间"]
+      .map((t, i) => `<th class="${i > 0 && i <= state.dims.length ? "num" : ""}">${t}</th>`).join("");
+    const body = rows.map((r) => {
+      const cells = [`<td>${escapeHtml(r.filename)}</td>`];
+      for (const d of state.dims) {
+        const v = r.scores[d.dim_id];
+        cells.push(`<td class="num ${cellClass(v)}">${fmt(v)}</td>`);
+      }
+      cells.push(`<td class="num">${escapeHtml((r.created_at || "").slice(0, 19).replace("T", " "))}</td>`);
+      return `<tr>${cells.join("")}</tr>`;
+    }).join("");
+    wrap.innerHTML = `<table class="lb-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  } catch (e) {
+    showModal("档案加载失败：" + e.message);
+  }
+}
+
 function init() {
   $("lmmBase").value = localStorage.getItem("ve_base") || "";
   $("lmmModel").value = localStorage.getItem("ve_model") || "";
@@ -739,6 +908,9 @@ function init() {
   $("btnRun").addEventListener("click", runTest);
   $("wbSubmit").addEventListener("click", submitWorkbench);
   $("wbExport").addEventListener("click", exportVbench);
+  $("btnRunAll").addEventListener("click", runAll);
+  $("btnArchive").addEventListener("click", archiveResult);
+  initWbPlayerControls();
   $("modalOk").addEventListener("click", () => {
     $("modalMask").hidden = true;
     if (confirmAction) { const a = confirmAction; confirmAction = null; a(); }

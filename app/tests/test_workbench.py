@@ -55,6 +55,65 @@ def test_is_port_free_probe():
     assert server_mod.is_port_free(busy) is True
 
 
+def test_model_tags_distinct_with_counts(isolated_db, tmp_path):
+    c = TestClient(server_mod.server)
+    # Distinct file contents (different frame counts): identical files would
+    # be deduped to the first record, so later tags would never persist.
+    for frames, tag in ((6, "kling"), (9, "kling"), (12, "jimeng")):
+        mp = tmp_path / f"clip_{frames}.mp4"
+        h, w = 48, 64
+        vw = cv2.VideoWriter(str(mp), cv2.VideoWriter_fourcc(*"mp4v"), 10, (w, h))
+        for i in range(frames):
+            vw.write(np.full((h, w, 3), (i * 40 % 255, 120, 160), np.uint8))
+        vw.release()
+        r = c.post("/api/upload", files={
+            "file": (mp.name, mp.read_bytes(), "video/mp4")
+        }, data={"model_tag": tag})
+        assert r.status_code == 200, r.text
+    r = c.get("/api/model-tags")
+    assert r.status_code == 200
+    tags = {t["model_tag"]: t["count"] for t in r.json()}
+    assert tags == {"kling": 2, "jimeng": 1}
+    assert list(tags) == ["kling", "jimeng"]  # most-used first
+
+
+def test_evaluate_all_without_lmm(isolated_db, tmp_path):
+    c = TestClient(server_mod.server)
+    vid = _upload(c, tmp_path)
+    r = c.post("/api/evaluate-all", data={"video_id": vid})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["D03"]["value"] is not None
+    assert body["D04"]["value"] is not None
+    for d in ("D01", "D02", "D05", "D06", "D07", "D08", "D09", "D10"):
+        assert body[d]["value"] is None
+    # Only successful local dims may persist.
+    persisted = c.get(f"/api/scores?video_id={vid}").json()
+    assert "D03" in persisted and "D04" in persisted
+    assert "D01" not in persisted
+
+
+def test_records_roundtrip(isolated_db, tmp_path):
+    c = TestClient(server_mod.server)
+    vid = _upload(c, tmp_path)
+    assert c.post("/api/records", json={"video_id": "nope"}).status_code == 404
+
+    r = c.post("/api/records", json={"video_id": vid})
+    assert r.status_code == 200, r.text
+    assert r.json()["scores"]["D01"] is None
+
+    storage.insert_objective_score(vid, "D05", {"value": 7.5}, "t", "m")
+    c.post("/api/records", json={"video_id": vid})
+    rows = c.get("/api/records").json()
+    assert len(rows) == 2
+    assert rows[0]["filename"] == "clip.mp4"
+    assert rows[0]["scores"]["D05"] == 7.5  # newest record first
+
+    assert c.delete(f"/api/records/{rows[0]['record_id']}").status_code == 200
+    assert c.delete("/api/records/nope").status_code == 404
+    assert len(c.get("/api/records").json()) == 1
+
+
 def test_duplicate_upload_is_idempotent(isolated_db, tmp_path):
     c = TestClient(server_mod.server)
     mp = tmp_path / "clip.mp4"
