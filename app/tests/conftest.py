@@ -15,19 +15,27 @@ from core import logger
 SRC_VIDEO = r"F:\AI\codex project\AI视频评测\测试用例\华清普智孵化器广告.mp4"
 
 
+@pytest.fixture
+def isolated_db():
+    return storage.DB
+
+
 @pytest.fixture(autouse=True)
 def _isolated_runtime_storage(tmp_path, monkeypatch):
     """Keep every test away from the developer's real DB/media directories."""
     data = tmp_path / "runtime-data"
     videos = data / "videos"
     frames = data / "frames"
+    decks = data / "decks"
     videos.mkdir(parents=True)
     frames.mkdir(parents=True)
+    decks.mkdir(parents=True)
     monkeypatch.setattr(storage, "DB", str(tmp_path / "evaluation.db"))
+    monkeypatch.setattr(storage, "DATA", str(data))
     monkeypatch.setattr(storage, "VIDEOS_DIR", str(videos))
     monkeypatch.setattr(storage, "FRAMES_DIR", str(frames))
+    monkeypatch.setattr(storage, "DECKS_DIR", str(decks))
     monkeypatch.setattr(storage, "CONFIG_PATH", str(tmp_path / "config.json"))
-    monkeypatch.setattr(storage, "DATA", str(data))
     monkeypatch.setattr(logger, "_LOG_PATH", str(data / "app.log"))
     names = [name for name in logging.Logger.manager.loggerDict
              if name == "videoeval" or name.startswith("videoeval.")]
@@ -52,12 +60,15 @@ def tmp_env(tmp_path, monkeypatch):
     data = tmp_path / "data"
     videos = data / "videos"
     frames = data / "frames"
+    decks = data / "decks"
     videos.mkdir(parents=True)
     frames.mkdir(parents=True)
+    decks.mkdir(parents=True)
     monkeypatch.setattr(storage, "DB", str(tmp_path / "evaluation.db"))
     monkeypatch.setattr(storage, "DATA", str(data))
     monkeypatch.setattr(storage, "VIDEOS_DIR", str(videos))
     monkeypatch.setattr(storage, "FRAMES_DIR", str(frames))
+    monkeypatch.setattr(storage, "DECKS_DIR", str(decks))
     monkeypatch.setattr(storage, "CONFIG_PATH", str(tmp_path / "config.json"))
     storage.init_db()
     return tmp_path

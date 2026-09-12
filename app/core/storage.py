@@ -4,6 +4,7 @@ import datetime
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -12,6 +13,7 @@ import uuid
 from .dimensions import DIMENSIONS, DIM_IDS, DEFAULT_SPEC_ID
 from .logger import get_logger
 from .media import md5_file, video_meta, validate_video, sample_frames
+from .ppt import PPT_DIM_IDS, DEFAULT_PPT_SPEC_ID, parse_deck
 
 log = get_logger("videoeval.storage")
 
@@ -26,9 +28,11 @@ BASE = _app_base()
 DATA = os.path.join(BASE, "data")
 VIDEOS_DIR = os.path.join(DATA, "videos")
 FRAMES_DIR = os.path.join(DATA, "frames")
+DECKS_DIR = os.path.join(DATA, "decks")
 
 os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(FRAMES_DIR, exist_ok=True)
+os.makedirs(DECKS_DIR, exist_ok=True)
 
 MAX_UPLOAD_MB = 500
 
@@ -89,6 +93,14 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS test_records (
         record_id TEXT PRIMARY KEY, video_id TEXT, filename TEXT,
         model_tag TEXT, scores TEXT, created_at TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS decks (
+        deck_id TEXT PRIMARY KEY, filename TEXT, file_hash TEXT,
+        tool_tag TEXT, prompt_text TEXT, slide_count INT,
+        file_size_mb REAL, created_at TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS deck_scores (
+        score_id TEXT PRIMARY KEY, deck_id TEXT, dim_id TEXT,
+        rater_id TEXT, method TEXT, model TEXT, scores TEXT,
+        is_valid INTEGER, created_at TEXT)""")
     c.execute("SELECT 1 FROM specs WHERE spec_id=?", (DEFAULT_SPEC_ID,))
     if not c.fetchone():
         c.execute("INSERT INTO specs VALUES (?,?,?,?,?)",
@@ -293,6 +305,139 @@ def delete_test_record(record_id):
     if not deleted:
         raise LookupError("记录不存在")
     return {"ok": True, "deleted": record_id}
+
+
+def add_deck(src, tool_tag="", prompt_text="", max_mb=200):
+    """Register an uploaded .pptx. Dedupes by hash like add_video."""
+    ext = os.path.splitext(src)[1].lower()
+    if ext != ".pptx":
+        raise ValueError("仅支持 .pptx 文件")
+    size_mb = os.path.getsize(src) / 1e6
+    if size_mb > max_mb:
+        raise ValueError(f"文件超过上限 {max_mb}MB")
+    meta = parse_deck(src)
+
+    h = md5_file(src)
+    conn = get_conn(); c = conn.cursor()
+    c.execute("""SELECT deck_id, filename, tool_tag, slide_count
+                 FROM decks WHERE file_hash=?""", (h,))
+    dup = c.fetchone()
+    if dup:
+        conn.close()
+        return {"deck_id": dup[0], "duplicate": True, "filename": dup[1],
+                "tool_tag": dup[2], "slide_count": dup[3]}
+    deck_id = uuid.uuid4().hex[:8]
+    dst = os.path.join(DECKS_DIR, f"{deck_id}.pptx")
+    shutil.copy(src, dst)
+    c.execute("INSERT INTO decks VALUES (?,?,?,?,?,?,?,?)",
+              (deck_id, os.path.basename(src), h, tool_tag, prompt_text,
+               meta["slide_count"], round(size_mb, 2),
+               datetime.datetime.now().isoformat()))
+    conn.commit(); conn.close()
+    log.info("deck added: id=%s file=%s slides=%s",
+             deck_id, os.path.basename(src), meta["slide_count"])
+    return {"deck_id": deck_id, "duplicate": False,
+            "filename": os.path.basename(src), "tool_tag": tool_tag,
+            "slide_count": meta["slide_count"],
+            "file_size_mb": round(size_mb, 2)}
+
+
+_DECK_ID_RE = re.compile(r"^[0-9a-f]{6,16}$")
+
+
+def deck_slides_dir(deck_id):
+    """Validated slides directory for a deck (None on malformed ids)."""
+    if not deck_id or not _DECK_ID_RE.fullmatch(deck_id):
+        return None
+    return os.path.join(DECKS_DIR, f"{deck_id}_slides")
+
+
+def get_deck_path(deck_id):
+    """Deck file path with strict id validation (no path traversal)."""
+    if not deck_id or not _DECK_ID_RE.fullmatch(deck_id):
+        return None
+    path = os.path.join(DECKS_DIR, f"{deck_id}.pptx")
+    return path if os.path.isfile(path) else None
+
+
+def delete_deck(deck_id):
+    conn = get_conn(); c = conn.cursor()
+    c.execute("SELECT 1 FROM decks WHERE deck_id=?", (deck_id,))
+    if not c.fetchone():
+        conn.close()
+        raise LookupError("PPT 不存在")
+    path = get_deck_path(deck_id)
+    if path:
+        os.remove(path)
+    shutil.rmtree(os.path.join(DECKS_DIR, deck_id + "_slides"),
+                  ignore_errors=True)
+    c.execute("DELETE FROM deck_scores WHERE deck_id=?", (deck_id,))
+    c.execute("DELETE FROM decks WHERE deck_id=?", (deck_id,))
+    conn.commit(); conn.close()
+    return {"ok": True, "deleted": deck_id}
+
+
+def list_decks(limit=50):
+    conn = get_conn(); c = conn.cursor()
+    c.execute("""SELECT deck_id, filename, tool_tag, slide_count,
+                        file_size_mb, created_at FROM decks
+                 ORDER BY created_at DESC LIMIT ?""", (limit,))
+    rows = c.fetchall(); conn.close()
+    return [{"deck_id": r[0], "filename": r[1], "tool_tag": r[2],
+             "slide_count": r[3], "file_size_mb": r[4], "created_at": r[5]}
+            for r in rows]
+
+
+def insert_deck_objective_score(deck_id, dim_id, res, rater, model,
+                                task_id="task_deck"):
+    conn = get_conn(); c = conn.cursor()
+    c.execute("INSERT INTO deck_scores VALUES (?,?,?,?,?,?,?,?,?)",
+              (uuid.uuid4().hex[:10], deck_id, dim_id, rater, "objective",
+               model, json.dumps(res, ensure_ascii=False), 1,
+               datetime.datetime.now().isoformat()))
+    conn.commit(); conn.close()
+
+
+def deck_dashboard_data():
+    """Aggregate deck_scores into per-deck rows and a per-tool-tag board."""
+    conn = get_conn(); c = conn.cursor()
+    c.execute("""SELECT d.deck_id, d.filename, d.tool_tag, s.dim_id,
+                        s.scores FROM decks d
+                 JOIN deck_scores s ON s.deck_id = d.deck_id
+                 ORDER BY s.created_at""")
+    rows = c.fetchall(); conn.close()
+    by_deck = {}
+    for deck_id, filename, tag, dim_id, sc_json in rows:
+        sc = json.loads(sc_json)
+        val = sc.get("value") if isinstance(sc, dict) else None
+        if val is None:
+            continue
+        d = by_deck.setdefault(deck_id, {"filename": filename,
+                                         "tool_tag": tag or "未标注",
+                                         "dims": {}})
+        d["dims"].setdefault(dim_id, []).append(float(val))
+    decks = []
+    for deck_id, d in by_deck.items():
+        mean_scores = {dim: round(sum(v) / len(v), 2)
+                       for dim, v in sorted(d["dims"].items()) if v}
+        vals = [x for v in d["dims"].values() for x in v]
+        decks.append({"deck_id": deck_id, "filename": d["filename"],
+                      "tool_tag": d["tool_tag"], "mean_scores": mean_scores,
+                      "overall": round(sum(vals) / len(vals), 2) if vals else None})
+    by_tool = {}
+    for deck in decks:
+        t = by_tool.setdefault(deck["tool_tag"], {"dims": {}, "count": 0})
+        t["count"] += 1
+        for dim, val in deck["mean_scores"].items():
+            t["dims"].setdefault(dim, []).append(val)
+    models = [{"tool_tag": tag, "n_decks": t["count"],
+               "mean_scores": {dim: round(sum(v) / len(v), 2)
+                               for dim, v in sorted(t["dims"].items())},
+               "overall": round(sum(x for v in t["dims"].values() for x in v)
+                                / sum(len(v) for v in t["dims"].values()), 2)}
+              for tag, t in by_tool.items()]
+    models.sort(key=lambda m: -(m["overall"] or 0))
+    return {"decks": decks, "models": models}
 
 
 def list_videos(limit=20):

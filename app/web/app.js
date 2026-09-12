@@ -14,6 +14,9 @@ const state = {
   vision: "unknown", // unknown | checking | ok | no_vision
   results: {},
   boardVideos: [],
+  pptDims: [],
+  deck: null,
+  pptResults: {},
 };
 
 let boardSort = { key: "overall", dir: -1 };
@@ -128,6 +131,249 @@ async function loadModelTags() {
     $("modelTagOptions").innerHTML = tags.map((t) =>
       `<option value="${escapeHtml(t.model_tag)}">${t.count}</option>`).join("");
   } catch { /* 自动补全失败不影响主流程 */ }
+}
+
+const PPT_LAYER_NAME = {
+  content: "内容层",
+  design: "设计层",
+  semantic: "语义层",
+  spec: "本地指标",
+};
+
+// ---- PPT 评测 ----
+let deckRenderer = { backend: null };
+
+async function loadPptDims() {
+  if (!state.pptDims.length) {
+    state.pptDims = await (await fetch("/api/ppt/dimensions")).json();
+  }
+  renderPptDims();
+}
+
+function renderPptDims() {
+  const grid = $("pptDimsGrid");
+  grid.innerHTML = "";
+  for (const d of state.pptDims) {
+    const card = document.createElement("div");
+    card.className = "dim-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    const badge = d.needs_render ? '<span class="corner-badge">需渲染器+模型</span>'
+      : d.needs_lmm ? '<span class="corner-badge">需视觉模型</span>'
+      : '<span class="corner-badge local">本地免费</span>';
+    card.innerHTML = `
+      ${badge}
+      <span class="dim-id">${d.dim_id}</span>
+      <h3>${d.name}</h3>
+      <p class="anchor">${d.anchor_mid}</p>
+      <span class="layer">${PPT_LAYER_NAME[d.layer]}</span>
+      ${state.pptResults[d.dim_id]
+        ? `<span class="tested-score">${state.pptResults[d.dim_id].value} 分</span>` : ""}`;
+    card.addEventListener("click", () => onPptDimClick(d));
+    grid.appendChild(card);
+  }
+  const n = Object.keys(state.pptResults).length;
+  $("deckTestedCount").textContent = `已测 ${n} / ${state.pptDims.length}`;
+}
+
+async function loadPptRenderer() {
+  try {
+    deckRenderer = await (await fetch("/api/ppt/renderer")).json();
+    const box = $("deckRenderer");
+    const ok = Boolean(deckRenderer.backend);
+    box.className = `vision-status ${ok ? "ok" : "no_vision"}`;
+    $("deckRendererText").textContent = ok
+      ? `幻灯片渲染可用（${deckRenderer.detail}）` : "无渲染器：设计层维度不可用";
+    $("btnDeckPreview").hidden = !ok;
+  } catch { /* 忽略 */ }
+}
+
+async function uploadDeck(file) {
+  try {
+    const data = await postForm("/api/deck/upload", {
+      file, tool_tag: $("deckTool").value.trim(),
+      prompt_text: $("deckPrompt").value.trim(),
+    });
+    setDeck(data);
+    await loadDecks();
+  } catch (e) {
+    showModal(`上传失败：${e.message}`);
+  }
+}
+
+function setDeck(deck, extra) {
+  state.deck = deck;
+  $("pendingDeck").hidden = !deck;
+  $("deckDropZone").style.display = deck ? "none" : "";
+  if (deck) {
+    restoreDeckScores(deck.deck_id);
+    $("pdName").textContent = deck.filename || deck.deck_id;
+    $("pdInfo").textContent = extra || `${deck.slide_count} 页 · ${deck.tool_tag || "未标工具"}`;
+  } else {
+    state.pptResults = {};
+    renderPptDims();
+  }
+}
+
+async function restoreDeckScores(deckId) {
+  try {
+    const r = await (await fetch(`/api/deck/${deckId}/scores`)).json();
+    state.pptResults = Object.fromEntries(Object.entries(r || {})
+      .filter(([, v]) => v.value != null).map(([k, v]) => [k, v]));
+    renderPptDims();
+  } catch { /* 忽略 */ }
+}
+
+async function loadDecks() {
+  const list = await (await fetch("/api/decks")).json();
+  const wrap = $("deckRecentWrap");
+  const el = $("deckRecentList");
+  el.innerHTML = "";
+  if (!list.length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  for (const d of list) {
+    const item = document.createElement("div");
+    item.className = "recent-item";
+    const main = document.createElement("button");
+    main.className = "ri-main";
+    main.textContent = `${d.filename} (${d.slide_count}页)`;
+    main.addEventListener("click", () => setDeck(d));
+    const del = document.createElement("button");
+    del.className = "ri-del";
+    del.title = "删除该 PPT 及评测记录";
+    del.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showConfirm(`删除「${d.filename}」及其评测记录？`, async () => {
+        try {
+          await fetch(`/api/deck/${d.deck_id}`, { method: "DELETE" });
+          if (state.deck && state.deck.deck_id === d.deck_id) setDeck(null);
+          await loadDecks();
+        } catch (err) { showModal(err.message); }
+      });
+    });
+    item.append(main, del);
+    el.appendChild(item);
+  }
+}
+
+async function runPptDim(dim) {
+  const r = await postForm(`/api/deck/evaluate/${dim.dim_id}`, {
+    deck_id: state.deck.deck_id,
+    prompt_text: $("deckPrompt").value.trim(),
+    ...state.lmm,
+  });
+  state.pptResults[dim.dim_id] = r;
+  renderPptDims();
+  return r;
+}
+
+async function onPptDimClick(dim) {
+  if (!state.deck) { showModal("请先上传 PPT 文件"); return; }
+  if (dim.needs_render && !deckRenderer.backend) {
+    showModal("该维度需要渲染幻灯片：请安装 PowerPoint 或 LibreOffice 后重试");
+    return;
+  }
+  if (dim.needs_lmm) {
+    readLmmFromUi();
+    if (!lmmReady()) { showModal("该维度需要视觉模型：请先在评测主页填写并保存配置"); return; }
+    if (state.vision !== "ok") {
+      const r = await checkVision();
+      if (!r.has_vision) {
+        showModal(r.missing ? "请提供测试用视觉模型" : "请更换有视觉能力的模型API");
+        return;
+      }
+    }
+  }
+  $("deckStatus").textContent = `P 测试中：${dim.name}…`;
+  try {
+    await runPptDim(dim);
+    $("deckStatus").textContent = "";
+    if (dim.needs_render) await loadSlides();
+  } catch (e) {
+    $("deckStatus").textContent = "";
+    showModal(e.message);
+  }
+}
+
+async function runPptAll() {
+  if (!state.deck) { showModal("请先上传 PPT 文件"); return; }
+  readLmmFromUi();
+  if (!lmmReady()) { showModal("一键测评需要视觉模型：请先在评测主页填写并保存配置"); return; }
+  const btn = $("btnDeckAll");
+  btn.disabled = true;
+  $("deckStatus").textContent = "一键测评中：P10 本地 + 大模型连续评分，约 1-3 分钟…";
+  try {
+    const r = await postForm("/api/deck/evaluate-all", {
+      deck_id: state.deck.deck_id,
+      prompt_text: $("deckPrompt").value.trim(),
+      ...state.lmm,
+    });
+    const fresh = Object.fromEntries(Object.entries(r)
+      .filter(([, v]) => v.value != null));
+    state.pptResults = { ...state.pptResults, ...fresh };
+    renderPptDims();
+    const failed = Object.entries(r).filter(([, v]) => v.value == null)
+      .map(([k, v]) => `${k}(${v.note})`);
+    $("deckStatus").textContent = failed.length
+      ? `完成 ${Object.keys(fresh).length}/10，未完成：${failed.join(" ")}` : "完成 10/10 维";
+    await loadSlides();
+    await loadPptBoard();
+  } catch (e) {
+    $("deckStatus").textContent = "";
+    showModal(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadSlides() {
+  if (!state.deck || !deckRenderer.backend) return;
+  const grid = $("slidesGrid");
+  grid.innerHTML = "";
+  $("slidesSection").hidden = false;
+  for (let i = 1; i <= Math.min(state.deck.slide_count, 16); i++) {
+    const img = document.createElement("img");
+    img.src = `/api/deck/${state.deck.deck_id}/slide/${i}.png`;
+    img.alt = `第${i}页`;
+    img.loading = "lazy";
+    img.addEventListener("error", () => img.remove());
+    grid.appendChild(img);
+  }
+}
+
+async function loadPptBoard() {
+  try {
+    const d = await (await fetch("/api/deck/dashboard")).json();
+    const wrap = $("pptBoard");
+    if (!d.models.length) {
+      wrap.innerHTML = '<p class="hint">暂无数据：先完成一次 PPT 评测。</p>';
+      return;
+    }
+    const dims = state.pptDims.length ? state.pptDims : await (await fetch("/api/ppt/dimensions")).json();
+    if (!state.pptDims.length) state.pptDims = dims;
+    const head = ["生成工具", "份数", ...dims.map((x) => x.dim_id), "综合"]
+      .map((t, i) => `<th class="${i >= 2 ? "num" : ""}">${t}</th>`).join("");
+    const body = d.models.map((m) => {
+      const cells = [`<td>${escapeHtml(m.tool_tag)}</td>`, `<td class="num">${m.n_decks}</td>`];
+      for (const x of dims) {
+        const v = m.mean_scores[x.dim_id];
+        cells.push(`<td class="num ${cellClass(v)}">${fmt(v)}</td>`);
+      }
+      cells.push(`<td class="num strong">${fmt(m.overall)}</td>`);
+      return `<tr>${cells.join("")}</tr>`;
+    }).join("");
+    wrap.innerHTML = `<table class="lb-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  } catch (e) {
+    showModal("PPT 子榜加载失败：" + e.message);
+  }
+}
+
+function showPptView() {
+  $("viewPpt").hidden = false;
+  loadPptDims().then(() => { renderPptDims(); loadPptBoard(); });
+  loadDecks();
+  loadPptRenderer();
 }
 
 async function uploadVideo(file) {
@@ -369,6 +615,7 @@ function showView(view) {
   $("viewBoard").hidden = true;
   $("viewDim").hidden = true;
   $("viewWork").hidden = true;
+  $("viewPpt").hidden = true;
   $("viewRecords").hidden = true;
   $("viewIntro").hidden = true;
   if (view === "home") $("viewHome").hidden = false;
@@ -378,6 +625,8 @@ function showView(view) {
   } else if (view === "work") {
     $("viewWork").hidden = false;
     loadWorkbench();
+  } else if (view === "ppt") {
+    showPptView();
   } else if (view === "records") {
     $("viewRecords").hidden = false;
     loadRecords();
@@ -910,6 +1159,26 @@ function init() {
   $("wbExport").addEventListener("click", exportVbench);
   $("btnRunAll").addEventListener("click", runAll);
   $("btnArchive").addEventListener("click", archiveResult);
+  $("btnDeckAll").addEventListener("click", runPptAll);
+  $("btnDeckPreview").addEventListener("click", loadSlides);
+  $("deckInput").addEventListener("change", async (e) => {
+    const input = e.currentTarget;
+    const file = input.files[0];
+    if (file) await uploadDeck(file);
+    input.value = "";
+  });
+  const deckDz = $("deckDropZone");
+  ["dragover", "dragenter"].forEach((ev) => deckDz.addEventListener(ev, (e) => {
+    e.preventDefault(); deckDz.classList.add("dragover");
+  }));
+  ["dragleave", "drop"].forEach((ev) => deckDz.addEventListener(ev, (e) => {
+    e.preventDefault(); deckDz.classList.remove("dragover");
+  }));
+  deckDz.addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files[0];
+    if (f) uploadDeck(f);
+  });
+  $("pdRemove").addEventListener("click", () => setDeck(null));
   initWbPlayerControls();
   $("modalOk").addEventListener("click", () => {
     $("modalMask").hidden = true;

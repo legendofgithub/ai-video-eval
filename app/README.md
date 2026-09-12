@@ -13,7 +13,7 @@
 构建命令（在 app/ 目录）：
 ```
 pip install pyinstaller pystray Pillow
-pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web;web" --hidden-import pystray --collect-all pystray server.py
+pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web;web" --hidden-import pystray --collect-all pystray --collect-all pptx --hidden-import win32com.client server.py
 ```
 产物在 `dist/VideoEvalWeb.exe`（约 120MB），拷贝到目标机器后双击运行，约 2 秒后自动打开浏览器进入界面；重复双击会直接打开已运行实例的界面；8765 被其它程序占用时自动顺延 8766+。任务栏托盘图标提供「打开浏览器」（重复打开用）和「退出」。评测数据全部保存在 exe 同目录唯一的 `data/` 文件夹内（`evaluation.db`、`config.json`、视频、抽帧与日志；旧版散落在外的那两个文件会在首次启动时自动移入）；删除 `data/` 文件夹即完全重置。运行日志写入 `data/app.log`。
 
@@ -43,7 +43,8 @@ pyinstaller --noconfirm --onefile --windowed --name VideoEvalWeb --add-data "web
 3. 主页「待测试区」上传视频；「测试用模型面板」填写视觉模型 API 并检测视觉能力
 4. 点击任意维度卡片逐维测试；或点「一键完成测评」一次跑完全部十维（D03/D04 本地，8 维连续调用视觉模型，约 1-2 分钟），点「归档测评结果」把快照存入「测评档案」页（本机 SQLite，重开应用仍在）
 5. 「评分工作台」内置视频播放器：支持 0.25×–2× 倍速、按视频真实帧率逐帧步进、「打点 @ mm:ss」把当前时间戳插入低分备注（配合 SOP「违规类型 @ mm:ss」格式）
-6. 顶部切换「数据看板」查看雷达图、MOS 分布、模型榜、视频明细和世界模型子榜
+6. 「PPT 评测」页：上传 AI 生成的 .pptx，按 P01–P10 十维评测。P10 结构规范度本地免费；内容/语义维度由大模型读取大纲文本；设计维度（P05–P07）需先渲染幻灯片——本机装有 PowerPoint 或 LibreOffice 时自动启用（COM 渲染在隔离子进程执行），否则优雅降级不可用
+7. 顶部切换「数据看板」查看雷达图、MOS 分布、模型榜、视频明细和世界模型子榜
 
 > 提示：API Key 仅保存在当前浏览器会话中，服务端不落盘。
 

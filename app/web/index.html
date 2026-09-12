@@ -23,6 +23,7 @@
       <button class="nav-tab active" data-view="home">评测主页</button>
       <button class="nav-tab" data-view="board">数据看板</button>
       <button class="nav-tab" data-view="work">评分工作台</button>
+      <button class="nav-tab" data-view="ppt">PPT 评测</button>
       <button class="nav-tab" data-view="records">测评档案</button>
       <button class="nav-tab nav-tab-intro" data-view="intro">产品介绍</button>
     </nav>
@@ -247,6 +248,76 @@
         <button class="btn ghost" id="wbExport">下载 vbench_export.json</button>
         <p class="hint">仅含已标模型标识的视频（主观/专家有效分）。</p>
       </div>
+    </section>
+  </main>
+
+  <main id="viewPpt" class="view" hidden>
+    <section class="setup-grid">
+      <div class="card upload-card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <h2>PPT 待测试区</h2>
+        </div>
+        <label class="drop-zone" id="deckDropZone">
+          <input type="file" id="deckInput" accept=".pptx" hidden>
+          <span class="dz-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <strong>上传 PPT 文件</strong>
+          <span>仅支持 .pptx（AI 生成的演示文稿）</span>
+        </label>
+        <div class="pending-video" id="pendingDeck" hidden>
+          <div class="pv-meta">
+            <strong id="pdName"></strong>
+            <span id="pdInfo"></span>
+          </div>
+          <button class="icon-btn" id="pdRemove" title="移除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="field-row">
+          <label>生成工具<input type="text" id="deckTool" placeholder="如 Kimi / Gamma / 讯飞智文"></label>
+          <label>生成要求<input type="text" id="deckPrompt" placeholder="生成这份 PPT 时使用的指令（P08/P09 用）"></label>
+        </div>
+        <div class="recent" id="deckRecentWrap" hidden>
+          <span class="recent-label">最近上传</span>
+          <div class="recent-list" id="deckRecentList"></div>
+        </div>
+      </div>
+      <div class="card model-card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <h2>渲染与模型</h2>
+        </div>
+        <div class="vision-status" id="deckRenderer">
+          <span class="dot"></span><span id="deckRendererText">检测中…</span>
+        </div>
+        <button class="btn ghost" id="btnDeckPreview" style="margin-top:12px">渲染幻灯片预览</button>
+        <p class="hint">P05–P07（设计层）需要 PowerPoint 或 LibreOffice 把幻灯片渲染成图，再交视觉大模型评分；内容与语义维度只需大模型；P10 本地免费。</p>
+      </div>
+    </section>
+
+    <section class="dims-section">
+      <div class="section-head flex">
+        <button class="btn primary" id="btnDeckAll">一键完成测评</button>
+        <div class="titles">
+          <h2>选择 PPT 评测维度</h2>
+          <p>点击维度卡开始测试</p>
+        </div>
+        <span class="hint" id="deckStatus"></span>
+        <span class="tested-count" id="deckTestedCount">已测 0 / 10</span>
+      </div>
+      <div class="dims-grid" id="pptDimsGrid"></div>
+    </section>
+
+    <section class="dims-section" id="slidesSection" hidden>
+      <div class="section-head"><h2>幻灯片预览</h2></div>
+      <div class="slides-grid" id="slidesGrid"></div>
+    </section>
+
+    <section class="dims-section">
+      <div class="section-head"><h2>PPT 工具子榜</h2><p>按生成工具聚合的维度均分</p></div>
+      <div class="card" style="margin-top:18px"><div id="pptBoard"></div></div>
     </section>
   </main>
 

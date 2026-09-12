@@ -9,3 +9,6 @@ fastapi>=0.115.0
 uvicorn>=0.30.0
 python-multipart>=0.0.9
 pystray>=0.19.0
+python-pptx>=1.0.0
+# 可选：PowerPoint COM 渲染幻灯片（PPT 设计层维度需要）
+pywin32>=306; sys_platform == "win32"

@@ -358,6 +358,14 @@ main.view { max-width: 1080px; margin: 0 auto; padding: 0 20px 56px; }
 .section-head.flex { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .section-head.flex .titles { flex: 1; min-width: 220px; }
 .section-head.flex .hint { max-width: 340px; text-align: right; }
+.slides-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px; margin-top: 14px;
+}
+.slides-grid img {
+  width: 100%; border-radius: 8px; background: #0a1830;
+  border: 1px solid var(--line);
+}
 .result { background: var(--blue-50); border-radius: 8px; padding: 16px; }
 .score-row { display: flex; align-items: baseline; gap: 6px; }
 .score-num { font-size: 38px; font-weight: 800; color: var(--blue-700); line-height: 1; }

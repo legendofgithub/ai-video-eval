@@ -20,22 +20,30 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core import (
+    DECKS_DIR,
     DIM_IDS,
     DIMENSIONS,
     MAX_UPLOAD_MB,
     TEMPORAL_SIGNAL_DIMS,
+    add_deck,
     add_video,
     auto_evaluate,
     compute_icc_matrix,
     compute_krippendorff_alpha,
     dashboard_data,
+    deck_dashboard_data,
+    deck_slides_dir,
+    delete_deck,
     delete_test_record,
     delete_video,
     export_vbench,
     get_conn,
+    get_deck_path,
     get_video_path,
     init_db,
+    insert_deck_objective_score,
     insert_objective_score,
+    list_decks,
     list_test_records,
     list_videos,
     load_config,
@@ -46,6 +54,7 @@ from core import (
     save_test_record,
     signal_metrics,
 )
+from core import ppt as ppt_core
 from core.logger import get_logger
 
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -247,6 +256,156 @@ def api_delete_record(record_id: str):
         return delete_test_record(record_id)
     except LookupError:
         raise HTTPException(status_code=404, detail="记录不存在") from None
+
+
+# ---------------- PPT 评测（decks） ----------------
+
+@server.get("/api/ppt/dimensions")
+def ppt_dimensions():
+    return [{
+        "dim_id": d["dim_id"], "name": d["name"], "layer": d["layer"],
+        "anchor_low": d["anchor_low"], "anchor_mid": d["anchor_mid"],
+        "anchor_high": d["anchor_high"],
+        "needs_render": bool(d.get("needs_render")),
+        "needs_lmm": d["dim_id"] not in ppt_core.LOCAL_PPT_DIMS,
+    } for d in ppt_core.PPT_DIMENSIONS]
+
+
+@server.get("/api/ppt/renderer")
+def ppt_renderer():
+    return ppt_core.detect_renderer()
+
+
+@server.post("/api/deck/upload")
+async def deck_upload(file: UploadFile = File(...), tool_tag: str = Form(""),
+                      prompt_text: str = Form("")):
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        tmp_path = os.path.join(tmp_dir, os.path.basename(file.filename or "deck.pptx"))
+        written = 0
+        with open(tmp_path, "wb") as tmp:
+            while chunk := await file.read(UPLOAD_CHUNK_BYTES):
+                written += len(chunk)
+                if written > 200 * 1024 * 1024:
+                    raise HTTPException(status_code=413, detail="文件超过上限 200MB")
+                tmp.write(chunk)
+        return add_deck(tmp_path, tool_tag.strip(), prompt_text.strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@server.get("/api/decks")
+def api_decks():
+    return list_decks()
+
+
+@server.delete("/api/deck/{deck_id}")
+def api_delete_deck(deck_id: str):
+    try:
+        return delete_deck(deck_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="PPT 不存在") from None
+
+
+@server.get("/api/deck/{deck_id}/slide/{index}.png")
+def deck_slide(deck_id: str, index: int):
+    slides_dir = deck_slides_dir(deck_id)
+    if not slides_dir or not (1 <= index <= ppt_core.MAX_RENDER_SLIDES):
+        raise HTTPException(status_code=404, detail="页码超出范围")
+    path = os.path.join(slides_dir, f"slide-{index:02d}.png")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="尚未渲染（需先运行含设计维度的评测）")
+    return FileResponse(path, media_type="image/png")
+
+
+def _deck_lmm_cfg(base_url, api_key, model):
+    base_url, api_key, model = _resolve_lmm(base_url, api_key, model)
+    return {"base_url": base_url, "api_key": api_key, "model": model,
+            "temperature": 0.0}
+
+
+def _deck_dims_result(deck_id, dims, prompt_text, lmm_cfg):
+    return ppt_core.evaluate_deck(
+        get_deck_path(deck_id), dims, lmm_cfg, prompt_text,
+        slides_dir=os.path.join(DECKS_DIR, f"{deck_id}_slides"))
+
+
+@server.post("/api/deck/evaluate/{dim_id}")
+def deck_evaluate(dim_id: str, deck_id: str = Form(...),
+                  prompt_text: str = Form(""), base_url: str = Form(""),
+                  api_key: str = Form(""), model: str = Form("")):
+    dim = next((d for d in ppt_core.PPT_DIMENSIONS
+                if d["dim_id"] == dim_id), None)
+    if not dim:
+        raise HTTPException(status_code=404, detail="未知维度")
+    if not get_deck_path(deck_id):
+        raise HTTPException(status_code=404, detail="PPT 不存在")
+    res = _deck_dims_result(deck_id, [dim], prompt_text,
+                            _deck_lmm_cfg(base_url, api_key, model)).get(dim_id)
+    if res is None or res.get("value") is None:
+        note = res.get("note") if res else "EVALUATION_FAILED"
+        raise HTTPException(status_code=502, detail=f"评测失败：{note}")
+    if dim_id in ppt_core.LOCAL_PPT_DIMS:
+        insert_deck_objective_score(deck_id, dim_id, res,
+                                    rater="ppt_local", model="local_rules")
+    else:
+        insert_deck_objective_score(deck_id, dim_id, res,
+                                    rater="lmm_" + model, model=model)
+    return {"dim_id": dim_id, **res, "method": "objective"}
+
+
+@server.post("/api/deck/evaluate-all")
+def deck_evaluate_all(deck_id: str = Form(...), prompt_text: str = Form(""),
+                      base_url: str = Form(""), api_key: str = Form(""),
+                      model: str = Form("")):
+    """One-click full deck evaluation; failed dims are skipped, not stored."""
+    if not get_deck_path(deck_id):
+        raise HTTPException(status_code=404, detail="PPT 不存在")
+    dims = list(ppt_core.PPT_DIMENSIONS)
+    results = _deck_dims_result(deck_id, dims, prompt_text,
+                                _deck_lmm_cfg(base_url, api_key, model))
+    for dim_id, res in results.items():
+        if res.get("value") is None:
+            continue
+        if dim_id in ppt_core.LOCAL_PPT_DIMS:
+            insert_deck_objective_score(deck_id, dim_id, res,
+                                        rater="ppt_local", model="local_rules")
+        else:
+            insert_deck_objective_score(deck_id, dim_id, res,
+                                        rater="lmm_" + model, model=model)
+    return results
+
+
+@server.get("/api/deck/{deck_id}/scores")
+def api_deck_scores(deck_id: str):
+    """Latest objective score per dimension for a deck (newest wins)."""
+    if not get_deck_path(deck_id):
+        raise HTTPException(status_code=404, detail="PPT 不存在")
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT dim_id, scores FROM deck_scores
+                 WHERE deck_id=? AND method='objective'
+                 ORDER BY created_at DESC""", (deck_id,))
+    rows = c.fetchall()
+    conn.close()
+    out = {}
+    for dim_id, sc_json in rows:
+        if dim_id in out:
+            continue
+        sc = json.loads(sc_json)
+        if isinstance(sc, dict) and sc.get("value") is not None:
+            out[dim_id] = {"value": sc.get("value"),
+                           "confidence": sc.get("confidence"),
+                           "note": sc.get("note", ""),
+                           "method": "objective"}
+    return out
+
+
+@server.get("/api/deck/dashboard")
+def api_deck_dashboard():
+    return deck_dashboard_data()
 
 
 @server.get("/api/video/{video_id}/file")
@@ -456,6 +615,13 @@ def _start_tray(port):
 
 
 if __name__ == "__main__":
+    if "--render-child" in sys.argv:
+        # Isolated slide-rendering child: `server.py --render-child <pptx> <outdir>`.
+        # COM requires a specific thread model, so it never runs inside uvicorn.
+        i = sys.argv.index("--render-child")
+        ppt_core.run_render_child(sys.argv[i + 1], sys.argv[i + 2])
+        raise SystemExit(0)
+
     import urllib.request
 
     import uvicorn

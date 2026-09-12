@@ -6,11 +6,15 @@ metrics, statistics and VBench export all live here. UI layers stay thin.
 """
 from .dimensions import (DIMENSIONS, DIM_IDS, DIM_NAME, DEFAULT_SPEC_ID,
                          TEMPORAL_SIGNAL_DIMS)
-from .storage import (BASE, DATA, VIDEOS_DIR, FRAMES_DIR, DB, CONFIG_PATH,
+from .storage import (BASE, DATA, VIDEOS_DIR, FRAMES_DIR, DECKS_DIR, DB,
+                      CONFIG_PATH,
                       MAX_UPLOAD_MB, get_conn, init_db, load_config, save_config,
                       add_video, delete_video, get_video_path, list_videos,
                       save_subjective, insert_objective_score,
                       save_test_record, list_test_records, delete_test_record,
+                      add_deck, delete_deck, get_deck_path, list_decks,
+                      deck_slides_dir,
+                      insert_deck_objective_score, deck_dashboard_data,
                       mask_api_key, load_lmm_config_masked, save_lmm_config)
 from .media import md5_file, video_meta, validate_video, sample_frames, frame_to_b64
 from .lmm import build_dim_prompt, score_one_dim, probe_vision
@@ -25,6 +29,8 @@ __all__ = [
     "add_video", "delete_video", "get_video_path", "list_videos",
     "save_subjective", "insert_objective_score",
     "save_test_record", "list_test_records", "delete_test_record",
+    "add_deck", "delete_deck", "get_deck_path", "list_decks",
+    "insert_deck_objective_score", "deck_dashboard_data",
     "mask_api_key", "load_lmm_config_masked", "save_lmm_config",
     "md5_file", "video_meta", "validate_video", "sample_frames", "frame_to_b64",
     "build_dim_prompt", "score_one_dim", "probe_vision",
